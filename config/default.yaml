@@ -1,5 +1,9 @@
 dataset_params:
-  im_path: 'data/train/images'
+  # im_path: 'dataset/data/train/images'
+  # data_dir: '../py2d/examples/results/Re5000_fkx4fky4_r0.1_b20/NoSGS/NX32/dt0.0002_IC1/data/'
+  data_dir: '../data/Re5000_fkx4fky4_r0.1_b20.0/NoSGS/NX256/dt0.0002_IC2/data/'
+  # file_range: [1000, 21000]
+  file_range: [1000, 21000]
 
 diffusion_params:
   num_timesteps : 1000
@@ -7,8 +11,8 @@ diffusion_params:
   beta_end : 0.02
 
 model_params:
-  im_channels : 1
-  im_size : 28
+  im_channels : 2
+  im_size : 32
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
   down_sample : [True, True, False]
@@ -19,10 +23,15 @@ model_params:
   num_heads : 4
 
 train_params:
-  task_name: 'default'
-  batch_size: 64
-  num_epochs: 40
-  num_samples : 100
-  num_grid_rows : 10
+  task_name: '2D_32'
+  batch_size: 2
+  num_epochs: 100
   lr: 0.0001
   ckpt_name: 'ddpm_ckpt.pth'
+
+# For Testing (Post training)
+test_params:
+  batch_size : 100 # Testing data batch size
+  num_test_batch : 2000 # number of samples = test_batch * num_test_batch
+  save_image: !!bool False
+  save_data: !!bool True
