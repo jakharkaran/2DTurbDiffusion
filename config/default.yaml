@@ -1,9 +1,16 @@
 dataset_params:
   # im_path: 'dataset/data/train/images'
-  # data_dir: '../py2d/examples/results/Re5000_fkx4fky4_r0.1_b20/NoSGS/NX32/dt0.0002_IC1/data/'
-  data_dir: '../data/Re5000_fkx4fky4_r0.1_b20.0/NoSGS/NX256/dt0.0002_IC2/data/'
+  # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
+  # data_dir: '../py2d/examples/results/Re5000_fkx4fky4_r0.1_b20/NoSGS/NX32/dt0.0002_IC1/'
+  # data_dir: '../data/Re5000_fkx4fky4_r0.1_b20.0/NoSGS/NX256/dt0.0002_IC2/'
+  # data_dir: '../data/Re5000_fkx4fky4_r0.1_b20.0/NoSGS/NX256/dt0.0002_IC1/'
+  data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
+  
+  file_range: [5000, 7500]
   # file_range: [1000, 21000]
-  file_range: [1000, 21000]
+  downsample_factor: 1
+  downsample_procedure: 'spectral' # spectral physical
+  normalize: !!bool True
 
 diffusion_params:
   num_timesteps : 1000
@@ -12,7 +19,7 @@ diffusion_params:
 
 model_params:
   im_channels : 2
-  im_size : 32
+  im_size : 64
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
   down_sample : [True, True, False]
@@ -23,15 +30,17 @@ model_params:
   num_heads : 4
 
 train_params:
-  task_name: '2D_32'
-  batch_size: 2
-  num_epochs: 100
+  # task_name: '2D_128_spectral_dt0.02_noise_2500'
+  task_name: '2D_64_spectral_dt0.02_noise_2500'
+  batch_size: 16
+  num_epochs: 200
   lr: 0.0001
+  loss: 'noise' # sample noise
   ckpt_name: 'ddpm_ckpt.pth'
 
 # For Testing (Post training)
 test_params:
-  batch_size : 100 # Testing data batch size
-  num_test_batch : 2000 # number of samples = test_batch * num_test_batch
+  batch_size : 50 # Testing data batch size
+  num_test_batch : 500 # number of samples = test_batch * num_test_batch
   save_image: !!bool False
   save_data: !!bool True

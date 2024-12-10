@@ -12,6 +12,7 @@ from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
 
 
 def train(args):
@@ -40,7 +41,7 @@ def train(args):
 
     
     # Create Dataset and DataLoader
-    dataset = CustomMatDataset(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'])
+    dataset = CustomMatDataset(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
     turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
 
 
@@ -61,7 +62,9 @@ def train(args):
     num_epochs = train_config['num_epochs']
     optimizer = Adam(model.parameters(), lr=train_config['lr'])
     criterion = torch.nn.MSELoss()
-    
+
+    # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+
     # Run training
     for epoch_idx in range(num_epochs):
         losses = []
@@ -79,9 +82,12 @@ def train(args):
             
             # Add noise to images according to timestep
             noisy_im = scheduler.add_noise(im, noise, t)
-            noise_pred = model(noisy_im, t)
+            model_out = model(noisy_im, t)
 
-            loss = criterion(noise_pred, noise)
+            if train_config['loss'] == 'noise':
+                loss = criterion(model_out, noise) # Noise is predicted by the model
+            elif train_config['loss'] == 'sample':
+                loss = criterion(model_out, im) # x0 (denoised sample) is predicted by the diffusion model
             losses.append(loss.item())
             loss.backward()
             optimizer.step()

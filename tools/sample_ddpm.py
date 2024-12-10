@@ -41,29 +41,33 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #         img.save(os.path.join(train_config['task_name'], 'samples', 'x0_{}.png'.format(i)))
 #         img.close()
 
-def sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config):
+def sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config):
     r"""
     Sample stepwise by going backward one timestep at a time.
     We save the x0 predictions
     """
-    xt = torch.randn((test_config['batch_size'],
-                      model_config['im_channels'],
-                      model_config['im_size'],
-                      model_config['im_size'])).to(device)
+    if dataset_config['normalize']:
+        mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
+        mean = [mean_std_data['U_mean'], mean_std_data['V_mean']]
+        std = [mean_std_data['U_std'], mean_std_data['V_std']]
 
     # saving generated data
     if test_config['save_data']:
-        if not os.path.exists(os.path.join(train_config['task_name'], 'data')):
-            os.mkdir(os.path.join(train_config['task_name'], 'data'))
+        os.makedirs(os.path.join(train_config['task_name'], 'data'), exist_ok=True)
     
-    for batch_count in range(test_config['num_test_batch']):
+    for batch_count in range(39,test_config['num_test_batch']):
+
+        xt = torch.randn((test_config['batch_size'],
+                        model_config['im_channels'],
+                        model_config['im_size'],
+                        model_config['im_size'])).to(device)
 
         # Saving generated images
         if test_config['save_image']:
-            if not os.path.exists(os.path.join(train_config['task_name'], 'samples', str(batch_count))):
-                os.mkdir(os.path.join(train_config['task_name'], 'samples', str(batch_count)))
-
-            nrows = int(np.floor(np.sqrt(test_config['num_samples'])))
+            # if not os.path.exists(os.path.join(train_config['task_name'], 'samples', str(batch_count))):
+            #     os.mkdir(os.path.join(train_config['task_name'], 'samples', str(batch_count)))
+            os.makedirs(os.path.join(train_config['task_name'], 'samples'), exist_ok=True)
+            nrows = int(np.floor(np.sqrt(test_config['batch_size'])))
 
             figU, axesU = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
             figV, axesV = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
@@ -77,7 +81,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
             if test_config['save_image']:
 
-                if i % 100 == 0 :
+                if i % 200 == 0 :
                 
                     # Save x0
                     ims = torch.clamp(xt, -1., 1.).detach().cpu()
@@ -95,7 +99,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         ax.axis('off')
                     # Adjust spacing between subplots to avoid overlap
                     figU.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figU.savefig(os.path.join(train_config['task_name'], 'samples', 'U0_{}.jpg'.format(i)), format='jpg', bbox_inches='tight', pad_inches=0)
+                    figU.savefig(os.path.join(train_config['task_name'], 'samples', f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                     # Loop over the grid
                     for ax_count, ax in enumerate(axesV.flat):
@@ -104,13 +108,25 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         ax.axis('off')
                     # Adjust spacing between subplots to avoid overlap
                     figV.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figV.savefig(os.path.join(train_config['task_name'], 'samples', 'V0_{}.jpg'.format(i)), format='jpg', bbox_inches='tight', pad_inches=0)
+                    figV.savefig(os.path.join(train_config['task_name'], 'samples', f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                     # figU.clear(), figV.clear()
                     del plotU, plotV
 
         if test_config['save_data']:
-            np.save(os.path.join(train_config['task_name'], 'data', str(batch_count) + '.npy'), xt.numpy())
+            xt_cpu = xt.detach().cpu()
+
+            if dataset_config['normalize']:
+                # Convert to tensors and reshape
+                mean  = np.asarray(mean)
+                std = np.asarray(std)
+
+                mean_tensor = mean.reshape(mean.shape[0], 1, 1)
+                std_tensor = std.reshape(std.shape[0], 1, 1)
+
+                xt_cpu= xt_cpu*std_tensor + mean_tensor
+
+            np.save(os.path.join(train_config['task_name'], 'data', str(batch_count) + '.npy'), xt_cpu.numpy())
 
 
 
@@ -148,6 +164,7 @@ def infer(args):
     print(config)
     ########################
     
+    dataset_config = config['dataset_params']
     diffusion_config = config['diffusion_params']
     model_config = config['model_params']
     train_config = config['train_params']
@@ -164,7 +181,7 @@ def infer(args):
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
     with torch.no_grad():
-        sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config)
+        sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config)
 
 
 if __name__ == '__main__':
