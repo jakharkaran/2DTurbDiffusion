@@ -5,9 +5,9 @@ This repository implements [DDPM](https://arxiv.org/abs/2006.11239) with trainin
 
 # Quickstart
 * ```python -m tools.train_ddpm``` for training ddpm
-* ```python -m tools.sample_ddpm``` for generating images
+* ```python -m tools.sample_ddpm --config config/config.yaml --run_num 1``` for generating images
 
 ## Configuration
-* ```config/default.yaml``` - Allows you to play with different components of ddpm  
+* ```config/config.yaml``` - Allows you to play with different components of ddpm  
 
 

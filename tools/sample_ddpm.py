@@ -13,35 +13,11 @@ from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
+if torch.cuda.is_available():
+    print("Number of GPUs available:", torch.cuda.device_count())
 
-
-# def sample(model, scheduler, train_config, model_config, diffusion_config):
-#     r"""
-#     Sample stepwise by going backward one timestep at a time.
-#     We save the x0 predictions
-#     """
-#     xt = torch.randn((train_config['num_samples'],
-#                       model_config['im_channels'],
-#                       model_config['im_size'],
-#                       model_config['im_size'])).to(device)
-#     for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
-#         # Get prediction of noise
-#         noise_pred = model(xt, torch.as_tensor(i).unsqueeze(0).to(device))
-        
-#         # Use scheduler to get x0 and xt-1
-#         xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
-        
-#         # Save x0
-#         ims = torch.clamp(xt, -1., 1.).detach().cpu()
-#         ims = (ims + 1) / 2
-#         grid = make_grid(ims, nrow=train_config['num_grid_rows'])
-#         img = torchvision.transforms.ToPILImage()(grid)
-#         if not os.path.exists(os.path.join(train_config['task_name'], 'samples')):
-#             os.mkdir(os.path.join(train_config['task_name'], 'samples'))
-#         img.save(os.path.join(train_config['task_name'], 'samples', 'x0_{}.png'.format(i)))
-#         img.close()
-
-def sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config):
+def sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config, run_num):
     r"""
     Sample stepwise by going backward one timestep at a time.
     We save the x0 predictions
@@ -53,9 +29,9 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
     # saving generated data
     if test_config['save_data']:
-        os.makedirs(os.path.join(train_config['task_name'], 'data'), exist_ok=True)
+        os.makedirs(os.path.join(train_config['task_name'], 'data', run_num), exist_ok=True)
     
-    for batch_count in range(39,test_config['num_test_batch']):
+    for batch_count in range(0,test_config['num_test_batch']):
 
         xt = torch.randn((test_config['batch_size'],
                         model_config['im_channels'],
@@ -126,32 +102,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
                 xt_cpu= xt_cpu*std_tensor + mean_tensor
 
-            np.save(os.path.join(train_config['task_name'], 'data', str(batch_count) + '.npy'), xt_cpu.numpy())
-
-
-
-# def sample_turb(model, scheduler, train_config, model_config, diffusion_config):
-#     r"""
-#     Sample stepwise by going backward one timestep at a time.
-#     We save the x0 predictions
-#     """
-#     xt = torch.randn((train_config['num_samples'],
-#                       model_config['im_channels'],
-#                       model_config['im_size'],
-#                       model_config['im_size'])).to(device)
-#     for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
-#         # Get prediction of noise
-#         noise_pred = model(xt, torch.as_tensor(i).unsqueeze(0).to(device))
-        
-#         # Use scheduler to get x0 and xt-1
-#         xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
-        
-#     # Save x0
-#     ims = torch.clamp(xt, -1., 1.).detach().cpu()
-#     U_arr = ims[:,0,:,:].numpy()
-#     V_arr = ims[:,1,:,:].numpy()
-
-    
+            np.save(os.path.join(train_config['task_name'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
 
 
 def infer(args):
@@ -169,9 +120,20 @@ def infer(args):
     model_config = config['model_params']
     train_config = config['train_params']
     test_config = config['test_params']
+    run_num = args.run_num
     
-    # Load model with checkpoint
-    model = Unet(model_config).to(device)
+    # Create model and load checkpoint
+    model = Unet(model_config)
+    # Multi-GPU Setup (DataParallel)
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+        print(f"GPUs available: {num_gpus}")
+        if num_gpus > 1:
+            print("Using DataParallel to run on multiple GPUs for inference.")
+            model = torch.nn.DataParallel(model)
+    model = model.to(device)
+
+    # Load weights
     model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
                                                   train_config['ckpt_name']), map_location=device))
     model.eval()
@@ -181,12 +143,19 @@ def infer(args):
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
     with torch.no_grad():
-        sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config)
+        sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config, run_num)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Arguments for ddpm image generation')
+    parser = argparse.ArgumentParser(description='Arguments for DDPM image generation')
     parser.add_argument('--config', dest='config_path',
-                        default='config/default.yaml', type=str)
+                        default='config/default.yaml', type=str,
+                        help='Path to the configuration file')
+    parser.add_argument('--run_num', dest='run_num', 
+                        type=str, required=True,
+                        help='Run number for the experiment')
+
     args = parser.parse_args()
+
+    # Call function with the parsed arguments
     infer(args)
