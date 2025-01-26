@@ -135,7 +135,7 @@ def infer(args):
 
     # Load weights
     model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
-                                                  train_config['ckpt_name']), map_location=device))
+                                                  train_config['best_ckpt_name']), map_location=device))
     model.eval()
     
     # Create the noise scheduler
