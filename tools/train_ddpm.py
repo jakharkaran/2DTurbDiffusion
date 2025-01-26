@@ -5,7 +5,7 @@ import os, sys
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
-from dataset.mnist_dataset import MnistDataset
+# from dataset.mnist_dataset import MnistDataset
 from torch.utils.data import DataLoader
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler

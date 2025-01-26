@@ -10,4 +10,5 @@ This repository implements [DDPM](https://arxiv.org/abs/2006.11239) with trainin
 ## Configuration
 * ```config/config.yaml``` - Allows you to play with different components of ddpm  
 
-
+## Install Relevant Packages
+* ```pip3 install torch torchvision torchaudio matplotlib numpy einops tqdm pyyaml```
