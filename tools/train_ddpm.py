@@ -135,8 +135,10 @@ def train(args):
     
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Arguments for ddpm training')
+    # parser = argparse.ArgumentParser(description='Arguments for ddpm training')
+    parser = argparse.ArgumentParser(description='Arguments for DDPM image generation')
     parser.add_argument('--config', dest='config_path',
-                        default='config/default.yaml', type=str)
+                        default='config/config.yaml', type=str,
+                        help='Path to the configuration file')
     args = parser.parse_args()
     train(args)

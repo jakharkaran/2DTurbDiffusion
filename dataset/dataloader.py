@@ -18,7 +18,7 @@ class CustomMatDataset(Dataset):
         """
         self.data_dir = data_dir
         self.file_numbers = range(file_range[0], file_range[1] + 1)
-        self.file_list = [os.path.join(data_dir, 'data2', f"{i}.mat") for i in self.file_numbers]
+        self.file_list = [os.path.join(data_dir, 'data', f"{i}.mat") for i in self.file_numbers]
         self.downsample_factor = downsample_factor
         self.downsample_procedure = downsample_procedure
         self.get_UV = get_UV

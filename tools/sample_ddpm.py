@@ -55,7 +55,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             # Use scheduler to get x0 and xt-1
             xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
 
-            if test_config['save_image']:
+            if test_config['save_image'] or batch_count < 5:
 
                 if i % 200 == 0 :
                 
@@ -135,7 +135,7 @@ def infer(args):
 
     # Load weights
     model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
-                                                  train_config['best_ckpt_name']), map_location=device))
+                                                  train_config['ckpt_name']), map_location=device))
     model.eval()
     
     # Create the noise scheduler
@@ -149,10 +149,10 @@ def infer(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Arguments for DDPM image generation')
     parser.add_argument('--config', dest='config_path',
-                        default='config/default.yaml', type=str,
+                        default='config/config.yaml', type=str,
                         help='Path to the configuration file')
     parser.add_argument('--run_num', dest='run_num', 
-                        type=str, required=True,
+                        default='1', type=str,
                         help='Run number for the experiment')
 
     args = parser.parse_args()
