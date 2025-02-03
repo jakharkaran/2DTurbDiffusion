@@ -13,7 +13,7 @@
 
 
 module load cuda/12.4.0
-source /work/nvme/bdiu/jakharkaran/miniconda3/bin/activate /work/nvme/bdiu/jakharkaran/.conda/envs/diffusion
+source /work/nvme/bdiu/jakharkaran/miniconda3/bin/activate /work/nvme/bdiu/jakharkaran/miniconda3/envs/diffusion
 
 # Launch GPU code
 python -m tools.sample_ddpm --config config/config_delta.yaml --run_num "$@"
