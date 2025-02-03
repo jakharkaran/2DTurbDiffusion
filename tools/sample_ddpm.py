@@ -39,10 +39,12 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         model_config['im_size'])).to(device)
 
         # Saving generated images
-        if test_config['save_image']:
+        if test_config['save_image'] or batch_count < 5:
             # if not os.path.exists(os.path.join(train_config['task_name'], 'samples', str(batch_count))):
             #     os.mkdir(os.path.join(train_config['task_name'], 'samples', str(batch_count)))
             os.makedirs(os.path.join(train_config['task_name'], 'samples'), exist_ok=True)
+            os.makedirs(os.path.join(train_config['task_name'], 'samples', run_num), exist_ok=True)
+
             nrows = int(np.floor(np.sqrt(test_config['batch_size'])))
 
             figU, axesU = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
