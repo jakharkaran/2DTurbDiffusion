@@ -39,7 +39,7 @@ train_params:
 
 # For Testing (Post training)
 test_params:
-  batch_size : 16 # Testing data batch size
+  batch_size : 64 # Testing data batch size
   num_test_batch : 100000 # number of samples = test_batch * num_test_batch
   save_image: !!bool False # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data

@@ -1,11 +1,10 @@
 #!/bin/bash
 
-for run in {0..2}
+for run in {1000..1020}
 do
     # Submit the SLURM job with the parameters
-    sbatch faster.slurm "$run"
+    sbatch delta_a40.slurm "$run"
 
     # # Print the input string
     echo "Submitted run_num : $run"
 done
-

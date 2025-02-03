@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1              # Number of MPI ranks per node (one rank per GPU)
 #SBATCH --mem=32G 
 #SBATCH --gres=gpu:a100:1       # Number of GPUs to use
-#SBATCH --time=48:00:00         # Total run time limit (hh:mm:ss)
+#SBATCH --time=24:00:00         # Total run time limit (hh:mm:ss)
 
 ## Export all environment variables to the job
 #SBATCH --export=all
