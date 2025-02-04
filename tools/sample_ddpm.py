@@ -77,7 +77,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         ax.axis('off')
                     # Adjust spacing between subplots to avoid overlap
                     figU.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figU.savefig(os.path.join(train_config['task_name'], 'samples', f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                    figU.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                     # Loop over the grid
                     for ax_count, ax in enumerate(axesV.flat):
@@ -86,7 +86,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         ax.axis('off')
                     # Adjust spacing between subplots to avoid overlap
                     figV.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figV.savefig(os.path.join(train_config['task_name'], 'samples', f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                    figV.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                     # figU.clear(), figV.clear()
                     del plotU, plotV
