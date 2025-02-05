@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#PBS -A UCHI0014
+#PBS -N myjob
+#PBS -q main 
+#PBS -l walltime=6:00:00 
+#PBS -l select=1:ncpus=32:ngpus=1
+#PBS -q GPU-shared
+#PBS -l gpu_type=a100               # gp100|v100|a100
+#PBS -j oe
+
+module load cuda
+source /glade/u/home/kjakhar/miniconda3/bin/activate /glade/u/home/kjakhar/miniconda3/envs/diffusion
+
+python -m tools.sample_ddpm --config config/config_derecho.yaml --run_num ${run}
