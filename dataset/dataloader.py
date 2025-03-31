@@ -10,7 +10,7 @@ from py2d.convert import Omega2Psi, Psi2UV, UV2Omega
 from py2d.filter import filter2D
 
 class CustomMatDataset(Dataset):
-    def __init__(self, data_dir, file_range, downsample_factor=1, downsample_procedure='physical', get_UV=True, get_Psi=False, get_Omega=False, normalize=True):
+    def __init__(self, data_dir, file_range, step_size, downsample_factor=1, downsample_procedure='physical', get_UV=True, get_Psi=False, get_Omega=False, normalize=True):
         """
         Args:
             data_dir (str): Directory with all the .mat files.
@@ -18,13 +18,16 @@ class CustomMatDataset(Dataset):
         """
         self.data_dir = data_dir
         self.file_numbers = range(file_range[0], file_range[1] + 1)
-        self.file_list = [os.path.join(data_dir, 'data', f"{i}.mat") for i in self.file_numbers]
+        self.file_list = [os.path.join(data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (file_range[0]-i) % step_size == 0]  # include only every step_size-th file
+        self.step_size = step_size
         self.downsample_factor = downsample_factor
         self.downsample_procedure = downsample_procedure
         self.get_UV = get_UV
         self.get_Psi = get_Psi
         self.get_Omega = get_Omega
         self.normalize = normalize
+
+        print('************************** length of file list:', len(self.file_list))
 
     def __len__(self):
         return len(self.file_list)
