@@ -1,11 +1,28 @@
+logging_params: # Logging for Weights and biases
+  log_to_screen: !!bool True # not set-up - can be setup for logging to screen
+  log_to_wandb: !!bool True #True
+  wandb_table_logging_interval: 10
+  project: '2DTurb-diffusion'
+  group: 'static'
+  name: 'base'
+  diagnostic_logs: !!bool True # not set-up
+
 dataset_params:
   # im_path: 'dataset/data/train/images'
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
-  # data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
-  # data_dir: 'Re500_fkx4fky4_r0.1_b20/2D_64_spectral_dt0.02_noise_2500/'
-  data_dir: '2D_64_spectral_dt0.02_noise_2500/'
+  data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
+  # data_dir: 'Re500_fkx4fky4_r0.1_b20/2D_64_spectral_dt0.02_noise_2500/' # training on emulator data
+  # data_dir: '2D_64_spectral_dt0.02_noise_2500/'
 
-  file_range: [5000, 7500]
+  file_range: [5000, 7500] # range of files to load
+  # file_range: [55000, 104999] # range of files to load
+  # file_range: [5000, 24999] # range of files to load
+  # file_range: [30000, 54999] # range of files to load
+  # file_range: [55000, 79999] # range of files to load
+  # file_range: [80000, 104999] # range of files to load
+
+  step_size: 1 # step size for data loading (every sample or every 10th sample)
+  # num_samples: 2500 # total samples used for training = file_range[1] - file_range[0] // step_size
   downsample_factor: 1
   downsample_procedure: 'spectral' # spectral physical
   normalize: !!bool True
@@ -28,18 +45,20 @@ model_params:
   num_heads : 4
 
 train_params:
-  task_name: '2D_64_spectral_dt0.02_noise_2500'
+  task_name: 'test'
   # task_name: 'test'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001
-  loss: 'noise' # sample noise
+  loss: 'noise' # sample noise 
+  divergence_loss: !!bool False # True False
+  divergence_loss_weight: 0.1
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
 # For Testing (Post training)
 test_params:
-  batch_size : 50 # Testing data batch size
-  num_test_batch : 100 # number of samples = test_batch * num_test_batch
-  save_image: !!bool True # Saves snapshots of emulated data
+  batch_size : 64 # Testing data batch size
+  num_test_batch : 3000 # number of samples = test_batch * num_test_batch
+  save_image: !!bool False # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data

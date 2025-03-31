@@ -2,11 +2,13 @@ import torch
 import yaml
 import argparse
 import os, sys
+import shutil
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
 # from dataset.mnist_dataset import MnistDataset
 from torch.utils.data import DataLoader
+import wandb
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset, CustomMatDatasetEmulator
@@ -16,8 +18,11 @@ from dataset.dataloader import CustomMatDataset, CustomMatDatasetEmulator
 # from torchinfo import summary
 
 
+
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device)
+print(f"Device: {device}")
+
 if torch.cuda.is_available():
     print("Number of GPUs available:", torch.cuda.device_count())
 
@@ -27,20 +32,32 @@ def train(args):
         try:
             config = yaml.safe_load(file)
         except yaml.YAMLError as exc:
-            print(exc)
-    print(config)
-    ########################
+            print("Error in configuration file:", exc)
+            sys.exit(1)
     
+    print('Configuration loaded: {config}')
+
+
+    ########################
+
     diffusion_config = config['diffusion_params']
     dataset_config = config['dataset_params']
     model_config = config['model_params']
     train_config = config['train_params']
-    
+    logging_config = config['logging_params']
+
+    if logging_config['log_to_wandb']:
+        # Set up wandb
+        wandb.login()
+        wandb.init(project=logging_config['project'], group=logging_config['group'],
+                   name=logging_config['name'], config=config)
+
+
     # Create the noise scheduler
     scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
-    
+        
     # # Create the dataset
     # mnist = MnistDataset('train', im_path=dataset_config['im_path'])
     # mnist_loader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
@@ -48,10 +65,10 @@ def train(args):
     
     # Create Dataset and DataLoader
     if dataset_config['data_dir'] == 'Re500_fkx4fky4_r0.1_b20/2D_64_spectral_dt0.02_noise_2500/' or dataset_config['data_dir'] == 'Re500_fkx4fky4_r0.1_b0/2D_64_spectral_dt0.02_noise_2500/':
-        dataset = CustomMatDatasetEmulator(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
+        dataset = CustomMatDatasetEmulator(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], step_size=dataset_config['step_size'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
         print('Using CustomMatDatasetEmulator')
     else:
-        dataset = CustomMatDataset(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
+        dataset = CustomMatDataset(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], step_size=dataset_config['step_size'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
         print('Using CustomMatDataset')
 
     turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
@@ -69,16 +86,22 @@ def train(args):
     model = model.to(device)
     
     model.train()
+
+    # Watch model gradients with wandb
+    if logging_config['log_to_wandb']:
+        wandb.watch(model)
     
-    # Create output directories
+    # Create output directories &   ### Saving config file with the model weights
     if not os.path.exists(train_config['task_name']):
         os.mkdir(train_config['task_name'])
+        shutil.copy(args.config_path, train_config['task_name'])
     
     # Load checkpoint if found
     if os.path.exists(os.path.join(train_config['task_name'],train_config['ckpt_name'])):
         print('Loading checkpoint as found one')
         model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
                                                       train_config['ckpt_name']), map_location=device))
+
     # Specify training parameters
     num_epochs = train_config['num_epochs']
     optimizer = Adam(model.parameters(), lr=train_config['lr'])
@@ -130,8 +153,18 @@ def train(args):
         ))
         torch.save(model.state_dict(), os.path.join(train_config['task_name'],
                                                     train_config['ckpt_name']))
+        
+        if logging_config['log_to_wandb']:
+            wandb.log({
+                "epoch": epoch_idx + 1,
+                "loss": loss,
+                "best_loss": best_loss,
+            })
     
-    print('Done Training ...')
+    print('Training Completed ...')
+
+    if logging_config['log_to_wandb']:
+        wandb.finish()
     
 
 if __name__ == '__main__':
