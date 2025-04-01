@@ -13,6 +13,9 @@ from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset, CustomMatDatasetEmulator
 
+from py2d.derivative import derivative 
+from py2d.initialize import initialize_wavenumbers_rfft2
+
 # Packages to outline architecture of the model
 # from torchviz import make_dot
 # from torchinfo import summary
@@ -45,6 +48,7 @@ def train(args):
     model_config = config['model_params']
     train_config = config['train_params']
     logging_config = config['logging_params']
+    test_config = config['test_params']
 
     if logging_config['log_to_wandb']:
         # Set up wandb
@@ -109,6 +113,15 @@ def train(args):
 
     # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
+    # 2D Trubulence System Parameter
+    nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
+    Lx, Ly = 2 * np.pi, 2 * np.pi
+    Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
+
+    mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
+    mean_data = [mean_std_data['U_mean'], mean_std_data['V_mean']]
+    std_data = [mean_std_data['U_std'], mean_std_data['V_std']]
+
     # Run training
     best_loss = 1e6 # initialize
     for epoch_idx in range(num_epochs):
@@ -135,9 +148,52 @@ def train(args):
             # sys.exit()
 
             if train_config['loss'] == 'noise':
-                loss = criterion(model_out, noise) # Noise is predicted by the model
+                loss_mse = criterion(model_out, noise) # Noise is predicted by the model
             elif train_config['loss'] == 'sample':
-                loss = criterion(model_out, im) # x0 (denoised sample) is predicted by the diffusion model
+                loss_mse = criterion(model_out, im) # x0 (denoised sample) is predicted by the diffusion model
+
+            if train_config['divergence_loss']:
+                model.eval()
+                with torch.inference_mode():
+
+                    # Compute Divergence
+                    xt = torch.randn((test_config['batch_size'],
+                    model_config['im_channels'],
+                    model_config['im_size'],
+                    model_config['im_size'])).to(device)
+
+
+                    for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
+                        # Get prediction of noise
+                        noise_pred  = model(xt, torch.as_tensor(i).unsqueeze(0).to(device))
+                        
+                        # Use scheduler to get x0 and xt-1
+                        xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
+
+                    ims = torch.clamp(xt, -1., 1.).detach().cpu()
+
+                    # De-normalize the data
+                    U_arr = ims[:,0,:,:].numpy()*std_data[0] + mean_data[0]
+                    V_arr = ims[:,1,:,:].numpy()*std_data[1] + mean_data[1]
+
+                    # Caculate the divergence
+                    Div_arr = []
+                    for count in range(test_config['batch_size']):
+                        Ux = derivative(U_arr[count,:,:], [1,0], Kx, Ky, spectral=False)
+                        Vy = derivative(V_arr[count,:,:], [0,1], Kx, Ky, spectral=False)
+                        Div_arr.append(np.mean(np.abs(Ux + Vy)))
+
+                    div = np.mean(Div_arr)
+                    loss_div = train_config['divergence_loss_weight'] * div
+
+                    loss = loss_mse + loss_div
+                model.train()
+
+                del xt, x0_pred, ims, U_arr, V_arr, noise_pred
+                torch.cuda.empty_cache()
+            else:
+                loss = loss_mse
+
             losses.append(loss.item())
             loss.backward()
             optimizer.step()
