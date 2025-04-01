@@ -1,11 +1,11 @@
 logging_params: # Logging for Weights and biases
-  log_to_screen: !!bool True # not set-up - can be setup for logging to screen
-  log_to_wandb: !!bool True #True
-  wandb_table_logging_interval: 10
-  project: '2DTurb-diffusion'
-  group: 'static'
-  name: 'base'
-  diagnostic_logs: !!bool True # not set-up
+  log_to_screen: !!bool False # not set-up - can be setup for logging to screen
+  diagnostic_logs: !!bool False # not set-up
+  log_to_wandb: !!bool False # True False
+  wandb_table_logging_interval: 10 # not setup
+  wandb_project: '2DTurb-diffusion'
+  wandb_group: 'static'
+  wandb_name: 'base'
 
 dataset_params:
   # im_path: 'dataset/data/train/images'
@@ -51,14 +51,14 @@ train_params:
   num_epochs: 200
   lr: 0.0001
   loss: 'noise' # sample noise 
-  divergence_loss: !!bool False # True False
+  divergence_loss: !!bool True # True False
   divergence_loss_weight: 0.1
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
 # For Testing (Post training)
 test_params:
-  batch_size : 64 # Testing data batch size
+  batch_size : 4 # Testing data batch size
   num_test_batch : 3000 # number of samples = test_batch * num_test_batch
   save_image: !!bool False # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data
