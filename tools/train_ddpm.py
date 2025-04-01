@@ -53,8 +53,8 @@ def train(args):
     if logging_config['log_to_wandb']:
         # Set up wandb
         wandb.login()
-        wandb.init(project=logging_config['project'], group=logging_config['group'],
-                   name=logging_config['name'], config=config)
+        wandb.init(project=logging_config['wandb_project'], group=logging_config['wandb_group'],
+                   name=logging_config['wandb_name'], config=config)
 
 
     # Create the noise scheduler
@@ -186,8 +186,8 @@ def train(args):
                     div = np.mean(Div_arr)
                     loss_div = train_config['divergence_loss_weight'] * div
 
-                    loss = loss_mse + loss_div
                 model.train()
+                loss = loss_mse + loss_div
 
                 del xt, x0_pred, ims, U_arr, V_arr, noise_pred
                 torch.cuda.empty_cache()
