@@ -2,10 +2,9 @@
 
 #PBS -A UCHI0014
 #PBS -N myjob
-#PBS -q main 
-#PBS -l walltime=6:00:00 
-#PBS -l select=1:ncpus=32:ngpus=1
-#PBS -q GPU-shared
+#PBS -q main                        # develop | main
+#PBS -l walltime=6:00:00            # 6:00:00 | 12:00:00
+#PBS -l select=1:ncpus=32:ngpus=1           
 #PBS -l gpu_type=a100               # gp100|v100|a100
 #PBS -j oe
 
