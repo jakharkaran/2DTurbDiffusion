@@ -122,15 +122,18 @@ def train(args):
     mean_data = [mean_std_data['U_mean'], mean_std_data['V_mean']]
     std_data = [mean_std_data['U_std'], mean_std_data['V_std']]
 
+    iteration = 0
     # Run training
     best_loss = 1e6 # initialize
     for epoch_idx in range(num_epochs):
         losses = []
         # for im in tqdm(mnist_loader):
         for im in tqdm(turb_dataloader):
+
+            iteration += 1
+
             optimizer.zero_grad()
             im = im.float().to(device)
-
 
             # Sample random noise
             noise = torch.randn_like(im).to(device)
@@ -151,6 +154,13 @@ def train(args):
                 loss_mse = criterion(model_out, noise) # Noise is predicted by the model
             elif train_config['loss'] == 'sample':
                 loss_mse = criterion(model_out, im) # x0 (denoised sample) is predicted by the diffusion model
+
+            if logging_config['log_to_wandb']:
+                log_data = {
+                    "epoch": epoch_idx + 1,
+                    "loss_mse": loss_mse,
+                    "iteration": iteration,
+                }
 
             if train_config['divergence_loss']:
                 model.eval()
@@ -191,12 +201,20 @@ def train(args):
 
                 del xt, x0_pred, ims, U_arr, V_arr, noise_pred
                 torch.cuda.empty_cache()
+
+                log_data["loss_div"] = loss_div # loggin for wandb
+
             else:
                 loss = loss_mse
 
             losses.append(loss.item())
             loss.backward()
             optimizer.step()
+
+            log_data["loss"] = loss
+            log_data["best_loss"] = best_loss
+            wandb.log(log_data) # Logging all data to wandb
+
 
         if best_loss > loss:
             best_loss = loss
@@ -207,15 +225,11 @@ def train(args):
             epoch_idx + 1,
             np.mean(losses), loss, best_loss
         ))
+        # Save the model
         torch.save(model.state_dict(), os.path.join(train_config['task_name'],
                                                     train_config['ckpt_name']))
-        
-        if logging_config['log_to_wandb']:
-            wandb.log({
-                "epoch": epoch_idx + 1,
-                "loss": loss,
-                "best_loss": best_loss,
-            })
+
+
     
     print('Training Completed ...')
 
