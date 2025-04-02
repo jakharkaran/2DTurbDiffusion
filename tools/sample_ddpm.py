@@ -7,6 +7,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.utils import make_grid
+from torch.amp import autocast
 from tqdm import tqdm
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
@@ -24,10 +25,16 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     """
     if dataset_config['normalize']:
         mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
-        mean = [mean_std_data['U_mean'], mean_std_data['V_mean']]
-        std = [mean_std_data['U_std'], mean_std_data['V_std']]
+        mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
+        std = np.asarray([mean_std_data['U_std'], mean_std_data['V_std']])
 
-    # saving generated data
+        mean_tensor = torch.tensor(mean.reshape(mean.shape[0], 1, 1)).to(device)
+        std_tensor = torch.tensor(std.reshape(std.shape[0], 1, 1)).to(device)
+
+    # Precompute timesteps once
+    timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+
+    # Create directory for saving generated data if required
     if test_config['save_data']:
         os.makedirs(os.path.join(train_config['task_name'], 'data', run_num), exist_ok=True)
     
@@ -38,10 +45,9 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         model_config['im_size'],
                         model_config['im_size'])).to(device)
 
-        # Saving generated images
+        # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
-            # if not os.path.exists(os.path.join(train_config['task_name'], 'samples', str(batch_count))):
-            #     os.mkdir(os.path.join(train_config['task_name'], 'samples', str(batch_count)))
+
             os.makedirs(os.path.join(train_config['task_name'], 'samples'), exist_ok=True)
             os.makedirs(os.path.join(train_config['task_name'], 'samples', run_num), exist_ok=True)
 
@@ -51,58 +57,54 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             figV, axesV = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
 
         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
-            # Get prediction of noise
-            noise_pred = model(xt, torch.as_tensor(i).unsqueeze(0).to(device))
-            
-            # Use scheduler to get x0 and xt-1
-            xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
 
-            if test_config['save_image'] or batch_count < 5:
-
-                if i % 200 == 0 :
+            with autocast('cuda'):
+                # Get prediction of noise
+                t_tensor = timesteps[i]
+                noise_pred = model(xt, t_tensor)
                 
-                    # Save x0
-                    ims = torch.clamp(xt, -1., 1.).detach().cpu()
+                # Use scheduler to get x0 and xt-1
+                xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
 
-                    U_arr = ims[:,0,:,:].numpy()
-                    V_arr = ims[:,1,:,:].numpy()
+                if test_config['save_image'] or batch_count < 5:
 
-                    vmax_U = np.max(np.abs(U_arr))
-                    vmax_V = np.max(np.abs(V_arr))
-                
-                    # Loop over the grid
-                    for ax_count, ax in enumerate(axesU.flat):
-                        # Plot each matrix using the 'bwr' colormap
-                        plotU = ax.pcolorfast(U_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
-                        ax.axis('off')
-                    # Adjust spacing between subplots to avoid overlap
-                    figU.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figU.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                    if i % 200 == 0 :
+                    
+                        # Save x0
+                        ims = torch.clamp(xt, -1., 1.).detach().cpu()
 
-                    # Loop over the grid
-                    for ax_count, ax in enumerate(axesV.flat):
-                        # Plot each matrix using the 'bwr' colormap
-                        plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                        ax.axis('off')
-                    # Adjust spacing between subplots to avoid overlap
-                    figV.subplots_adjust(wspace=0.1, hspace=0.1)
-                    figV.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                        U_arr = ims[:,0,:,:].numpy()
+                        V_arr = ims[:,1,:,:].numpy()
 
-                    # figU.clear(), figV.clear()
-                    del plotU, plotV
+                        vmax_U = np.max(np.abs(U_arr))
+                        vmax_V = np.max(np.abs(V_arr))
+                    
+                        # Loop over the grid
+                        for ax_count, ax in enumerate(axesU.flat):
+                            # Plot each matrix using the 'bwr' colormap
+                            plotU = ax.pcolorfast(U_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                            ax.axis('off')
+                        # Adjust spacing between subplots to avoid overlap
+                        figU.subplots_adjust(wspace=0.1, hspace=0.1)
+                        figU.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+
+                        # Loop over the grid
+                        for ax_count, ax in enumerate(axesV.flat):
+                            # Plot each matrix using the 'bwr' colormap
+                            plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                            ax.axis('off')
+                        # Adjust spacing between subplots to avoid overlap
+                        figV.subplots_adjust(wspace=0.1, hspace=0.1)
+                        figV.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+
+                        del plotU, plotV
 
         if test_config['save_data']:
-            xt_cpu = xt.detach().cpu()
-
             if dataset_config['normalize']:
-                # Convert to tensors and reshape
-                mean  = np.asarray(mean)
-                std = np.asarray(std)
+                # In-place normalization: xt = xt * std + mean
+                xt.mul_(std_tensor).add_(mean_tensor)
 
-                mean_tensor = mean.reshape(mean.shape[0], 1, 1)
-                std_tensor = std.reshape(std.shape[0], 1, 1)
-
-                xt_cpu= xt_cpu*std_tensor + mean_tensor
+            xt_cpu = xt.detach().cpu()
 
             np.save(os.path.join(train_config['task_name'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
 
@@ -126,6 +128,10 @@ def infer(args):
     
     # Create model and load checkpoint
     model = Unet(model_config)
+
+    # If your model is fully scriptable, script it first
+    # model = torch.jit.script(model)
+
     # Multi-GPU Setup (DataParallel)
     if torch.cuda.is_available():
         num_gpus = torch.cuda.device_count()
