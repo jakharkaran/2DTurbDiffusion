@@ -8,19 +8,17 @@ from tqdm import tqdm
 from torch.optim import Adam
 # from dataset.mnist_dataset import MnistDataset
 from torch.utils.data import DataLoader
+from torch.amp import autocast
 import wandb
+
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset, CustomMatDatasetEmulator
-
-from py2d.derivative import derivative 
-from py2d.initialize import initialize_wavenumbers_rfft2
+from tools.util import SpectralDifferentiator
 
 # Packages to outline architecture of the model
 # from torchviz import make_dot
 # from torchinfo import summary
-
-
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -111,12 +109,19 @@ def train(args):
     optimizer = Adam(model.parameters(), lr=train_config['lr'])
     criterion = torch.nn.MSELoss()
 
+    if train_config['divergence_loss_type'] == 'denoise_sample':
+        # Precompute timesteps for denoising
+        timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+
     # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # 2D Trubulence System Parameter
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
-    Lx, Ly = 2 * np.pi, 2 * np.pi
-    Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
+    Lx, Ly = 2 * torch.pi, 2 * torch.pi
+    # Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
+
+    # --- Instantiate the Differentiator ---
+    diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device)
 
     mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
     mean_data = [mean_std_data['U_mean'], mean_std_data['V_mean']]
@@ -162,47 +167,53 @@ def train(args):
                     "iteration": iteration,
                 }
 
+            ###### Divergence Loss
             if train_config['divergence_loss']:
                 model.eval()
-                with torch.inference_mode():
 
-                    # Compute Divergence
-                    xt = torch.randn((test_config['batch_size'],
-                    model_config['im_channels'],
-                    model_config['im_size'],
-                    model_config['im_size'])).to(device)
+                # Method # 1: If loss is in noise: Calculate x_0 directly from predicted_noise in a single step
+                if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'noise':
 
+                    x0_pred = scheduler.sample_x0_from_noise(noisy_im, model_out, t) # Get x0 from xt and noise_pred
+                    div = diff.divergence(x0_pred, spectral=False) # Divergence of x0
 
-                    for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
-                        # Get prediction of noise
-                        noise_pred  = model(xt, torch.as_tensor(i).unsqueeze(0).to(device))
-                        
-                        # Use scheduler to get x0 and xt-1
-                        xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, torch.as_tensor(i).to(device))
+                # Method # 2: If loss is in noise: Calculate x_0 directly via denoising 
+                if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
+                    with torch.inference_mode():
 
-                    ims = torch.clamp(xt, -1., 1.).detach().cpu()
+                        # Compute Divergence
+                        xt = torch.randn((test_config['batch_size'],
+                        model_config['im_channels'],
+                        model_config['im_size'],
+                        model_config['im_size'])).to(device)
 
-                    # De-normalize the data
-                    U_arr = ims[:,0,:,:].numpy()*std_data[0] + mean_data[0]
-                    V_arr = ims[:,1,:,:].numpy()*std_data[1] + mean_data[1]
+                        for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
+                                
+                            # with autocast('cuda'):
+                            # Get prediction of noise
+                            t_tensor = timesteps[i]
+                            noise_pred = model(xt, t_tensor)
+                            
+                            # Use scheduler to get x0 and xt-1
+                            xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                            
+                            div = diff.divergence(xt, spectral=False) # Divergence of x0
 
-                    # Caculate the divergence
-                    Div_arr = []
-                    for count in range(test_config['batch_size']):
-                        Ux = derivative(U_arr[count,:,:], [1,0], Kx, Ky, spectral=False)
-                        Vy = derivative(V_arr[count,:,:], [0,1], Kx, Ky, spectral=False)
-                        Div_arr.append(np.mean(np.abs(Ux + Vy)))
+                    del xt, noise_pred
+                    torch.cuda.empty_cache()
 
-                    div = np.mean(Div_arr)
-                    loss_div = train_config['divergence_loss_weight'] * div
+                # Method # 3: If loss is in sample
+                if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'sample':
+                    div = diff.divergence(model_out, spectral=False)
 
-                model.train()
+                loss_div = train_config['divergence_loss_weight'] * torch.mean(torch.abs(div))
                 loss = loss_mse + loss_div
 
-                del xt, x0_pred, ims, U_arr, V_arr, noise_pred
-                torch.cuda.empty_cache()
+                if logging_config['log_to_wandb']:
+                    log_data["loss_div"] = loss_div # loggin for wandb
 
-                log_data["loss_div"] = loss_div # loggin for wandb
+                model.train()
+
 
             else:
                 loss = loss_mse
@@ -211,10 +222,10 @@ def train(args):
             loss.backward()
             optimizer.step()
 
-            log_data["loss"] = loss
-            log_data["best_loss"] = best_loss
-            wandb.log(log_data) # Logging all data to wandb
-
+            if logging_config['log_to_wandb']:
+                log_data["loss"] = loss
+                log_data["best_loss"] = best_loss
+                wandb.log(log_data) # Logging all data to wandb
 
         if best_loss > loss:
             best_loss = loss
@@ -228,8 +239,6 @@ def train(args):
         # Save the model
         torch.save(model.state_dict(), os.path.join(train_config['task_name'],
                                                     train_config['ckpt_name']))
-
-
     
     print('Training Completed ...')
 

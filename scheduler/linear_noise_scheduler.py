@@ -12,7 +12,7 @@ class LinearNoiseScheduler:
         
         self.betas = torch.linspace(beta_start, beta_end, num_timesteps)
         self.alphas = 1. - self.betas
-        self.alpha_cum_prod = torch.cumprod(self.alphas, dim=0)
+        self.alpha_cum_prod = torch.cumprod(self.alphas, dim=0) # cummulative product of alphas
         self.sqrt_alpha_cum_prod = torch.sqrt(self.alpha_cum_prod)
         self.sqrt_one_minus_alpha_cum_prod = torch.sqrt(1 - self.alpha_cum_prod)
         
@@ -69,3 +69,44 @@ class LinearNoiseScheduler:
             # sigma = variance ** 0.5
             # z = torch.randn(xt.shape).to(xt.device)
             return mean + sigma * z, x0
+        
+    def sample_prev_timestep_image_from_x0(self, xt, x0, t):
+        r"""
+            Use the x0 prediction to get
+            xt-1 using xt and the x0 predicted
+        :param xt: current timestep sample
+        :param x0: model x0 prediction
+        :param t: current timestep we are at
+        :return:
+        """
+        mean = (self.sqrt_alpha_cum_prod.to(xt.device)[t] * x0 +
+                self.sqrt_one_minus_alpha_cum_prod.to(xt.device)[t] * xt)
+        
+        if t == 0:
+            return mean
+        else:
+            variance = (1 - self.alpha_cum_prod.to(xt.device)[t - 1]) / (1.0 - self.alpha_cum_prod.to(xt.device)[t])
+            variance = variance * self.betas.to(xt.device)[t]
+            sigma = variance ** 0.5
+            z = torch.randn(xt.shape).to(xt.device)
+            
+            # OR
+            # variance = self.betas[t]
+            # sigma = variance ** 0.5
+            # z = torch.randn(xt.shape).to(xt.device)
+            return mean + sigma * z
+        
+    def sample_x0_from_noise(self, xt, noise_pred, t):
+        # xt and noise_pred are [B, C, H, W]
+        # t is [B]
+        
+        # Reshape the 1D timestep-dependent tensors for broadcasting:
+        sqrt_one_minus_alpha = self.sqrt_one_minus_alpha_cum_prod.to(xt.device)[t].view(-1, 1, 1, 1)
+        alpha_cum = self.alpha_cum_prod.to(xt.device)[t].view(-1, 1, 1, 1)
+
+        # Calculate x0 according to the equation:
+        x0 = (xt - sqrt_one_minus_alpha * noise_pred) / torch.sqrt(alpha_cum)
+        x0 = torch.clamp(x0, -1., 1.)
+        
+        return x0
+
