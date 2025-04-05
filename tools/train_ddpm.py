@@ -123,9 +123,14 @@ def train(args):
     # --- Instantiate the Differentiator ---
     diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device)
 
-    mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
-    mean_data = [mean_std_data['U_mean'], mean_std_data['V_mean']]
-    std_data = [mean_std_data['U_std'], mean_std_data['V_std']]
+    if train_config['divergence_loss']:
+        # Load the mean and std for de-normalization
+        mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
+        mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
+        std = np.asarray([mean_std_data['U_std'], mean_std_data['V_std']])
+
+        mean_tensor = torch.tensor(mean.reshape(1, mean.shape[0], 1, 1)).to(device)
+        std_tensor = torch.tensor(std.reshape(1, std.shape[0], 1, 1)).to(device)
 
     iteration = 0
     # Run training
@@ -173,9 +178,7 @@ def train(args):
 
                 # Method # 1: If loss is in noise: Calculate x_0 directly from predicted_noise in a single step
                 if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'noise':
-
                     x0_pred = scheduler.sample_x0_from_noise(noisy_im, model_out, t) # Get x0 from xt and noise_pred
-                    div = diff.divergence(x0_pred, spectral=False) # Divergence of x0
 
                 # Method # 2: If loss is in noise: Calculate x_0 directly via denoising 
                 if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
@@ -196,15 +199,20 @@ def train(args):
                             
                             # Use scheduler to get x0 and xt-1
                             xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
-                            
-                            div = diff.divergence(xt, spectral=False) # Divergence of x0
+
+                        x0_pred = xt.detach().clone()
 
                     del xt, noise_pred
                     torch.cuda.empty_cache()
 
                 # Method # 3: If loss is in sample
                 if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'sample':
-                    div = diff.divergence(model_out, spectral=False)
+                    x0_pred = model_out
+
+                # De-normalize the data
+                if dataset_config['normalize']:
+                    x0_pred = x0_pred.mul(std_tensor).add(mean_tensor)
+                    div = diff.divergence(x0_pred, spectral=False)
 
                 loss_div = train_config['divergence_loss_weight'] * torch.mean(torch.abs(div))
                 loss = loss_mse + loss_div
