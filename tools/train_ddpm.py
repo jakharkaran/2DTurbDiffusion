@@ -6,14 +6,13 @@ import shutil
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
-# from dataset.mnist_dataset import MnistDataset
 from torch.utils.data import DataLoader
 from torch.amp import autocast
 import wandb
 
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
-from dataset.dataloader import CustomMatDataset, CustomMatDatasetEmulator
+from dataset.dataloader import CustomMatDataset
 from tools.util import SpectralDifferentiator
 
 # Packages to outline architecture of the model
@@ -60,19 +59,8 @@ def train(args):
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
         
-    # # Create the dataset
-    # mnist = MnistDataset('train', im_path=dataset_config['im_path'])
-    # mnist_loader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
-
-    
-    # Create Dataset and DataLoader
-    if dataset_config['data_dir'] == 'Re500_fkx4fky4_r0.1_b20/2D_64_spectral_dt0.02_noise_2500/' or dataset_config['data_dir'] == 'Re500_fkx4fky4_r0.1_b0/2D_64_spectral_dt0.02_noise_2500/':
-        dataset = CustomMatDatasetEmulator(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], step_size=dataset_config['step_size'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
-        print('Using CustomMatDatasetEmulator')
-    else:
-        dataset = CustomMatDataset(data_dir=dataset_config['data_dir'], file_range=dataset_config['file_range'], step_size=dataset_config['step_size'], downsample_factor=dataset_config['downsample_factor'], downsample_procedure=dataset_config['downsample_procedure'], normalize=dataset_config['normalize'])
-        print('Using CustomMatDataset')
-
+    # Initiate dataloader
+    dataset = CustomMatDataset(dataset_config, train_config, test_config)
     turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
         
     # Instantiate the model
@@ -94,14 +82,20 @@ def train(args):
         wandb.watch(model)
     
     # Create output directories &   ### Saving config file with the model weights
-    if not os.path.exists(train_config['task_name']):
-        os.mkdir(train_config['task_name'])
-        shutil.copy(args.config_path, train_config['task_name'])
+    if train_config['model_collapse']:
+        save_dir =  os.path.join('results', train_config['task_name'] + '_' + train_config['model_collapse_type'] + '_' + str(train_config['model_collapse_gen']))
+    else:
+        save_dir = os.path.join('results',train_config['task_name'])
+
+    print('*** Saving weights: ', save_dir)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        shutil.copy(args.config_path, save_dir)
     
     # Load checkpoint if found
-    if os.path.exists(os.path.join(train_config['task_name'],train_config['ckpt_name'])):
+    if os.path.exists(os.path.join(save_dir,train_config['ckpt_name'])):
         print('Loading checkpoint as found one')
-        model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
+        model.load_state_dict(torch.load(os.path.join(save_dir,
                                                       train_config['ckpt_name']), map_location=device))
 
     # Specify training parameters
@@ -237,7 +231,7 @@ def train(args):
 
         if best_loss > loss:
             best_loss = loss
-            torch.save(model.state_dict(), os.path.join(train_config['task_name'],
+            torch.save(model.state_dict(), os.path.join(save_dir,
                                                         train_config['best_ckpt_name']))
             
         print('Finished epoch:{} | Loss (mean/current/best) : {:.4f}/{:.4f}/{:.4f}'.format(
@@ -245,7 +239,7 @@ def train(args):
             np.mean(losses), loss, best_loss
         ))
         # Save the model
-        torch.save(model.state_dict(), os.path.join(train_config['task_name'],
+        torch.save(model.state_dict(), os.path.join(save_dir,
                                                     train_config['ckpt_name']))
     
     print('Training Completed ...')

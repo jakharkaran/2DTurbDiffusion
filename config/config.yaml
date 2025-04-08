@@ -45,21 +45,26 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'test'
-  # task_name: 'test'
+  task_name: 'MC'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001
   loss: 'noise' # sample noise 
-  divergence_loss: !!bool True # True False
+
+  divergence_loss: !!bool False # True False
   divergence_loss_type: 'direct_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
-  divergence_loss_weight: 1
+  divergence_loss_weight: 100
+
+  model_collapse: !!bool False # True False
+  model_collapse_type: 'all_gen' # all_gen last_gen # All generations vs last generation
+  model_collapse_gen: 1 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
+
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
 # For Testing (Post training)
 test_params:
-  batch_size : 4 # Testing data batch size
-  num_test_batch : 3000 # number of samples = test_batch * num_test_batch
-  save_image: !!bool True # Saves snapshots of emulated data
+  batch_size : 50 # Testing data batch size
+  num_test_batch : 50 # number of samples = test_batch * num_test_batch
+  save_image: !!bool False # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data

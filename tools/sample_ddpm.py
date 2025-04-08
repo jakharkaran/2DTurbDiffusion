@@ -36,9 +36,28 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
     # Create directory for saving generated data if required
     if test_config['save_data']:
-        os.makedirs(os.path.join(train_config['task_name'], 'data', run_num), exist_ok=True)
-    
-    for batch_count in range(0,test_config['num_test_batch']):
+        os.makedirs(os.path.join(train_config['save_dir'], 'data', run_num), exist_ok=True)
+
+        # List all .npy files in the directory
+        npy_files = [f for f in os.listdir(os.path.join(train_config['save_dir'], 'data', run_num)) if f.endswith('.npy')]
+
+        if npy_files:
+            # Extract numeric file numbers from filenames
+            file_numbers = [int(os.path.splitext(f)[0]) for f in npy_files]
+            largest_file_number = max(file_numbers)
+            print(f"Data exists in the directory. Largest file number: {largest_file_number}")
+        else:
+            largest_file_number = -1  # No files found
+            print("No .npy files found in the directory.")    
+
+    # Check if all batches already exist
+    if largest_file_number >= (test_config['num_test_batch']-1):
+        print(f"All {test_config['num_test_batch']} batches already exist. Exiting.")
+        sys.exit(0)
+
+
+    # Loop over the number of batches    
+    for batch_count in range(largest_file_number+1,test_config['num_test_batch']):
 
         xt = torch.randn((test_config['batch_size'],
                         model_config['im_channels'],
@@ -48,8 +67,8 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
 
-            os.makedirs(os.path.join(train_config['task_name'], 'samples'), exist_ok=True)
-            os.makedirs(os.path.join(train_config['task_name'], 'samples', run_num), exist_ok=True)
+            os.makedirs(os.path.join(train_config['save_dir'], 'samples'), exist_ok=True)
+            os.makedirs(os.path.join(train_config['save_dir'], 'samples', run_num), exist_ok=True)
 
             nrows = int(np.floor(np.sqrt(test_config['batch_size'])))
 
@@ -86,7 +105,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                             ax.axis('off')
                         # Adjust spacing between subplots to avoid overlap
                         figU.subplots_adjust(wspace=0.1, hspace=0.1)
-                        figU.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                        figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                         # Loop over the grid
                         for ax_count, ax in enumerate(axesV.flat):
@@ -95,7 +114,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                             ax.axis('off')
                         # Adjust spacing between subplots to avoid overlap
                         figV.subplots_adjust(wspace=0.1, hspace=0.1)
-                        figV.savefig(os.path.join(train_config['task_name'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                        figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                         del plotU, plotV
 
@@ -106,7 +125,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
             xt_cpu = xt.detach().cpu()
 
-            np.save(os.path.join(train_config['task_name'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
+            np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
 
 
 def infer(args):
@@ -141,8 +160,15 @@ def infer(args):
             model = torch.nn.DataParallel(model)
     model = model.to(device)
 
+    # Create output directories &   ### Saving config file with the model weights
+    if train_config['model_collapse']:
+        task_name = train_config['task_name'] + '_' + train_config['model_collapse_type'] + '_' + str(train_config['model_collapse_gen'])
+    else:
+        task_name = train_config['task_name']
+    train_config['save_dir'] =  os.path.join('results', task_name)
+
     # Load weights
-    model.load_state_dict(torch.load(os.path.join(train_config['task_name'],
+    model.load_state_dict(torch.load(os.path.join(train_config['save_dir'],
                                                   train_config['ckpt_name']), map_location=device))
     model.eval()
     
