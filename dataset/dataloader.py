@@ -65,7 +65,7 @@ class CustomMatDataset(Dataset):
                     self.file_list_model_collapse.extend(files)
 
 
-            print('************************** length of file list - Model Collapse:', len(self.file_list_model_collapse), ' files', len(self.file_list_model_collapse)*self.file_batch_size, ' files')
+            print('************************** length of file list - Model Collapse:', len(self.file_list_model_collapse), ' files', len(self.file_list_model_collapse)*self.file_batch_size, ' snaps')
 
         print('************************** length of file list:', len(self.file_list_data))
 
