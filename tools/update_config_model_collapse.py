@@ -26,7 +26,7 @@ def main(model_collapse_type, model_collapse_gen, config_path='config/config'):
     print(f"Updated configuration saved to {target_file}")
 
 if __name__ == '__main__':
-    model_collapse_type = str(sys.argv[1])
-    model_collapse_gen = int(sys.argv[2])
-    config_path = 'config/config'
+    model_collapse_type = str(sys.argv[2])
+    model_collapse_gen = int(sys.argv[3])
+    config_path = str(sys.argv[1])
     main(model_collapse_type, model_collapse_gen, config_path)
