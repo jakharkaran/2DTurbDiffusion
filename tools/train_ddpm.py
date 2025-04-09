@@ -132,12 +132,29 @@ def train(args):
     for epoch_idx in range(num_epochs):
         losses = []
         # for im in tqdm(mnist_loader):
-        for im in tqdm(turb_dataloader):
+        for batch_im in tqdm(turb_dataloader):
 
             iteration += 1
 
             optimizer.zero_grad()
-            im = im.float().to(device)
+
+            if train_config['divergence_loss'] and train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
+                # Calculate split sizes for the two branches
+                batch_size = batch_im.shape[0]
+                div_ratio = train_config['denoise_sample_batch_ratio']
+                bs_div = int(batch_size * div_ratio)
+
+                if bs_div == 0:
+                    print('Warning: No data for divergence loss batch. Setting to 1.')
+                    bs_div=1
+                    
+                bs_mse = batch_size - bs_div
+                print('bs_mese:', bs_mse, 'bs_div:', bs_div)
+
+                im = batch_im[:bs_mse].float().to(device)
+                batch_div = batch_im[bs_mse:].float().to(device)
+            else:
+                im = batch_im.float().to(device)
 
             # Sample random noise
             noise = torch.randn_like(im).to(device)
@@ -168,7 +185,7 @@ def train(args):
 
             ###### Divergence Loss
             if train_config['divergence_loss']:
-                model.eval()
+                # model.eval()
 
                 # Method # 1: If loss is in noise: Calculate x_0 directly from predicted_noise in a single step
                 if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'noise':
@@ -176,28 +193,56 @@ def train(args):
 
                 # Method # 2: If loss is in noise: Calculate x_0 directly via denoising 
                 if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
-                    with torch.inference_mode():
 
-                        # Compute Divergence
-                        xt = torch.randn((test_config['batch_size'],
-                        model_config['im_channels'],
-                        model_config['im_size'],
-                        model_config['im_size'])).to(device)
+                    # Sample timestep
+                    timesteps_div = [torch.tensor(i, device=device).unsqueeze(0) for i in range(train_config['denoise_sample_timestep'])]
+                    # Sample random noise
+                    noise_div = torch.randn_like(batch_div).to(device)
 
-                        for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
-                                
-                            # with autocast('cuda'):
-                            # Get prediction of noise
-                            t_tensor = timesteps[i]
-                            noise_pred = model(xt, t_tensor)
+                    # Add noise to images according to timestep
+                    t_div_noise = torch.full((batch_div.shape[0],), train_config['denoise_sample_timestep']-1, dtype=torch.int).to(device)
+                    noisy_im_div = scheduler.add_noise(batch_div, noise_div, t_div_noise)
+
+                    for i in tqdm(reversed(range( train_config['denoise_sample_timestep']))):
                             
-                            # Use scheduler to get x0 and xt-1
-                            xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                        # Get prediction of noise
+                        t_tensor = timesteps_div[i]
+                        noise_pred_div = model(noisy_im_div, t_tensor)
+                        
+                        # Use scheduler to get x0 and xt-1
+                        noisy_im_div, _ = scheduler.sample_prev_timestep(noisy_im_div, noise_pred_div, t_tensor.squeeze(0))
 
-                        x0_pred = xt.detach().clone()
+                    x0_pred = noisy_im_div
+                    # x0_pred = xt.detach().clone()
 
-                    del xt, noise_pred
-                    torch.cuda.empty_cache()
+                    # del xt, noise_pred
+                    # torch.cuda.empty_cache()
+
+                    # Revierse diffusion process with model_out
+                # Method # 2: If loss is in noise: Calculate x_0 directly via denoising 
+                # if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
+                #     with torch.inference_mode():
+
+                #         # Compute Divergence
+                #         xt = torch.randn((test_config['batch_size'],
+                #         model_config['im_channels'],
+                #         model_config['im_size'],
+                #         model_config['im_size'])).to(device)
+
+                #         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
+                                
+                #             # with autocast('cuda'):
+                #             # Get prediction of noise
+                #             t_tensor = timesteps[i]
+                #             noise_pred = model(xt, t_tensor)
+                            
+                #             # Use scheduler to get x0 and xt-1
+                #             xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+
+                #         x0_pred = xt.detach().clone()
+
+                #     del xt, noise_pred
+                #     torch.cuda.empty_cache()
 
                 # Method # 3: If loss is in sample
                 if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'sample':
@@ -206,6 +251,7 @@ def train(args):
                 # De-normalize the data
                 if dataset_config['normalize']:
                     x0_pred = x0_pred.mul(std_tensor).add(mean_tensor)
+                    print(x0_pred.shape)
                     div = diff.divergence(x0_pred, spectral=False)
 
                 loss_div = train_config['divergence_loss_weight'] * torch.mean(torch.abs(div))
@@ -214,7 +260,7 @@ def train(args):
                 if logging_config['log_to_wandb']:
                     log_data["loss_div"] = loss_div # loggin for wandb
 
-                model.train()
+                # model.train()
 
 
             else:
