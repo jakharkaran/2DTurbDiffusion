@@ -80,10 +80,18 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             with autocast('cuda'):
                 # Get prediction of noise
                 t_tensor = timesteps[i]
-                noise_pred = model(xt, t_tensor)
+
+                # if train_config['loss'] == 'noise':
+                model_out = model(xt, t_tensor)
                 
-                # Use scheduler to get x0 and xt-1
-                xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                    # Use scheduler to get x0 and xt-1
+                if train_config['loss'] == 'noise':
+                    # model_out is predicted noise
+                    xt, _ = scheduler.sample_prev_timestep_from_noise(xt, model_out, t_tensor.squeeze(0))
+
+                elif train_config['loss'] == 'sample':
+                    # model_out is predicted x0
+                    xt = scheduler.sample_prev_timestep_from_x0(xt, model_out, t_tensor.squeeze(0))
 
                 if test_config['save_image'] or batch_count < 5:
 

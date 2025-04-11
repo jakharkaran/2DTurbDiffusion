@@ -147,7 +147,7 @@ def train(args):
                 if bs_div == 0:
                     print('Warning: No data for divergence loss batch. Setting to 1.')
                     bs_div=1
-                    
+
                 bs_mse = batch_size - bs_div
                 print('bs_mese:', bs_mse, 'bs_div:', bs_div)
 
@@ -210,7 +210,7 @@ def train(args):
                         noise_pred_div = model(noisy_im_div, t_tensor)
                         
                         # Use scheduler to get x0 and xt-1
-                        noisy_im_div, _ = scheduler.sample_prev_timestep(noisy_im_div, noise_pred_div, t_tensor.squeeze(0))
+                        noisy_im_div, _ = scheduler.sample_prev_timestep_from_noise(noisy_im_div, noise_pred_div, t_tensor.squeeze(0))
 
                     x0_pred = noisy_im_div
                     # x0_pred = xt.detach().clone()
@@ -237,7 +237,7 @@ def train(args):
                 #             noise_pred = model(xt, t_tensor)
                             
                 #             # Use scheduler to get x0 and xt-1
-                #             xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                #             xt, _ = scheduler.sample_prev_timestep_from_noise(xt, noise_pred, t_tensor.squeeze(0))
 
                 #         x0_pred = xt.detach().clone()
 

@@ -12,6 +12,7 @@ class LinearNoiseScheduler:
         
         self.betas = torch.linspace(beta_start, beta_end, num_timesteps)
         self.alphas = 1. - self.betas
+        self.sqrt_alphas = torch.sqrt(self.alphas)
         self.alpha_cum_prod = torch.cumprod(self.alphas, dim=0) # cummulative product of alphas
         self.sqrt_alpha_cum_prod = torch.sqrt(self.alpha_cum_prod)
         self.sqrt_one_minus_alpha_cum_prod = torch.sqrt(1 - self.alpha_cum_prod)
@@ -40,7 +41,7 @@ class LinearNoiseScheduler:
         return (sqrt_alpha_cum_prod.to(original.device) * original
                 + sqrt_one_minus_alpha_cum_prod.to(original.device) * noise)
         
-    def sample_prev_timestep(self, xt, noise_pred, t):
+    def sample_prev_timestep_from_noise(self, xt, noise_pred, t):
         r"""
             Use the noise prediction by model to get
             xt-1 using xt and the noise predicted
@@ -70,32 +71,55 @@ class LinearNoiseScheduler:
             # z = torch.randn(xt.shape).to(xt.device)
             return mean + sigma * z, x0
         
-    def sample_prev_timestep_image_from_x0(self, xt, x0, t):
-        r"""
-            Use the x0 prediction to get
-            xt-1 using xt and the x0 predicted
-        :param xt: current timestep sample
-        :param x0: model x0 prediction
-        :param t: current timestep we are at
-        :return:
+
+    def sample_prev_timestep_from_x0(self, xt, x0_pred, t):
         """
-        mean = (self.sqrt_alpha_cum_prod.to(xt.device)[t] * x0 +
-                self.sqrt_one_minus_alpha_cum_prod.to(xt.device)[t] * xt)
+        Compute x_{t-1} from the current sample xt and the predicted x0.
         
+        Based on the DDPM reverse process formulation (see Ho et al., 2020):
+        
+        μₜ(x_t, x₀) = (√(ᾱ₍t₋₁₎) * β_t / (1 - ᾱ_t)) * x0_pred 
+                        + (√(α_t) * (1 - ᾱ₍t₋₁₎) / (1 - ᾱ_t)) * xt
+                        
+        σₜ² = ((1 - ᾱ₍t₋₁₎) / (1 - ᾱ_t)) * β_t
+        
+        Args:
+            xt (torch.Tensor): Current sample at timestep t, shape (B, C, H, W).
+            x0_pred (torch.Tensor): Predicted x₀ from the model, same shape as xt.
+            scheduler: An object that holds the diffusion hyperparameters and precomputed tensors:
+                    - betas: 1D tensor of length T.
+                    - alphas: 1D tensor computed as (1 - betas).
+                    - alpha_cum_prod: 1D tensor representing cumulative products of alphas.
+            t (int): Current timestep (0 <= t < num_timesteps).
+            
+        Returns:
+            torch.Tensor: Sample for timestep t-1 of shape (B, C, H, W).
+        """
+
+        # For t > 0, use the previous cumulative product; for t == 0, define ᾱ₍t₋₁₎ as 1.
+        if t > 0:
+            alpha_cumprod_t_prev = self.alpha_cum_prod[t - 1]
+        else:
+            alpha_cumprod_t_prev = torch.tensor(1.0)
+        sqrt_alpha_cumprod_t_prev = torch.sqrt(alpha_cumprod_t_prev)
+        
+        # Compute the posterior mean μₜ (the reverse process mean) using the x₀ prediction.
+        coeff1 = (sqrt_alpha_cumprod_t_prev.to(xt.device) * self.betas[t].to(xt.device)) / (1 - self.alpha_cum_prod[t].to(xt.device))
+        coeff2 = (self.sqrt_alphas[t].to(xt.device) * (1 - alpha_cumprod_t_prev.to(xt.device))) / (1 - self.alpha_cum_prod[t].to(xt.device))
+        mean = coeff1 * x0_pred + coeff2 * xt
+
         if t == 0:
             return mean
         else:
+            # Compute the posterior variance and sample noise.
             variance = (1 - self.alpha_cum_prod.to(xt.device)[t - 1]) / (1.0 - self.alpha_cum_prod.to(xt.device)[t])
             variance = variance * self.betas.to(xt.device)[t]
             sigma = variance ** 0.5
             z = torch.randn(xt.shape).to(xt.device)
-            
-            # OR
-            # variance = self.betas[t]
-            # sigma = variance ** 0.5
-            # z = torch.randn(xt.shape).to(xt.device)
+
             return mean + sigma * z
-        
+
+    
     def sample_x0_from_noise(self, xt, noise_pred, t):
         # xt and noise_pred are [B, C, H, W]
         # t is [B]
