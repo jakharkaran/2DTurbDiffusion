@@ -332,10 +332,15 @@ class Unet(nn.Module):
         self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1)
     
     def forward(self, x, t):
+    # def forward(self, x, t, x_init=None):
         # Shapes assuming downblocks are [C1, C2, C3, C4]
         # Shapes assuming midblocks are [C4, C4, C3]
         # Shapes assuming downsamples are [True, True, False]
         # B x C x H x W
+
+        # concatenate conditional x_init along channel dim
+        # x = torch.cat([x, x_init], dim=1) if x_init is not None else x
+        
         out = self.conv_in(x)
         # B x C1 x H x W
         

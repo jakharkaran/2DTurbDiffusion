@@ -1,9 +1,9 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool False # not set-up - can be setup for logging to screen
   diagnostic_logs: !!bool False # not set-up
-  log_to_wandb: !!bool False # True False
+  log_to_wandb: !!bool True # True False
   wandb_table_logging_interval: 10 # not setup
-  wandb_project: '2DTurb-diffusion'
+  wandb_project: '2DTurb-diffusion-condition'
   wandb_group: 'static'
   wandb_name: 'base'
 
@@ -23,17 +23,19 @@ dataset_params:
 
   step_size: 1 # step size for data loading (every sample or every 10th sample)
   # num_samples: 2500 # total samples used for training = file_range[1] - file_range[0] // step_size
+  condition_step_size: 3 # step size for conditioning data loading (every sample or every 10th sample)
   downsample_factor: 1
   downsample_procedure: 'spectral' # spectral physical
   normalize: !!bool True
 
 diffusion_params:
+  conditional: !!bool True # True False
   num_timesteps : 1000
   beta_start : 0.0001
   beta_end : 0.02
 
 model_params: # U-NET
-  im_channels : 2
+  im_channels : 4 # 2 when conditional=False, 4 when conditional=True
   im_size : 64
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
@@ -45,17 +47,22 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'MC'
+  task_name: 'conditional_3'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001
   loss: 'noise' # sample noise 
+  condition_noise: !!bool False  # True False Noise is added to the conditioning ** Not implemented
 
   divergence_loss: !!bool False # True False
-  divergence_loss_type: 'direct_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
-  divergence_loss_weight: 100
+  divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
+  divergence_loss_weight: 1
 
-  model_collapse: !!bool False # True False
+  # Following only used for divergence_loss_type: denoise_sample
+  denoise_sample_timestep: 1 # 1 - num_timesteps  
+  denoise_sample_batch_ratio: 0.15 # % of batch used for divergence loss, rest of the samples used for mse loss
+
+  model_collapse: !!bool False # True False # Not implemented for conditional
   model_collapse_type: 'all_gen' # all_gen last_gen # All generations vs last generation
   model_collapse_gen: 1 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
 
@@ -64,7 +71,8 @@ train_params:
 
 # For Testing (Post training)
 test_params:
-  batch_size : 50 # Testing data batch size
-  num_test_batch : 50 # number of samples = test_batch * num_test_batch
-  save_image: !!bool False # Saves snapshots of emulated data
+  batch_size : 1 # Testing data batch size
+  num_test_batch : 100 # number of samples = test_batch * num_test_batch
+  test_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
+  save_image: !!bool True # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data

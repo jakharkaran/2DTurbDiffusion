@@ -10,7 +10,7 @@ from py2d.convert import Omega2Psi, Psi2UV, UV2Omega
 from py2d.filter import filter2D
 
 class CustomMatDataset(Dataset):
-    def __init__(self, dataset_config, train_config, test_config, get_UV=True, get_Psi=False, get_Omega=False):
+    def __init__(self, dataset_config, train_config, test_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
         """
         Args:
             data_dir (str): Directory with all the .mat files.
@@ -18,19 +18,33 @@ class CustomMatDataset(Dataset):
         """
         self.data_dir = dataset_config['data_dir']
         self.file_range = dataset_config['file_range']
-        self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
+
+        if training:
+            self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
+        else:
+            # For testing cnditional diffusion model
+            self.file_test_start_idx = test_config['test_file_start_idx']
+            self.file_numbers = range(self.file_test_start_idx, self.file_test_start_idx + 1)
+
         self.step_size = dataset_config['step_size']
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
         self.downsample_factor = dataset_config['downsample_factor']
         self.downsample_procedure = dataset_config['downsample_procedure']
         self.normalize = dataset_config['normalize']
+
+        # conditional parameters
+        self.condition_step_size = dataset_config['condition_step_size'] 
+        self.conditional = conditional
+
+        # model collapse parameters
         self.model_collapse = train_config['model_collapse']
 
         self.get_UV = get_UV
         self.get_Psi = get_Psi
         self.get_Omega = get_Omega
 
+        #### Model Collapse
         if train_config['model_collapse']:
 
             self.model_collapse_gen = train_config['model_collapse_gen']
@@ -74,15 +88,21 @@ class CustomMatDataset(Dataset):
         if self.model_collapse:
             if self.model_collapse_type == 'last_gen':
                 # Return the total number of files in the model collapse
-                return len(self.file_list_model_collapse) * self.file_batch_size
+                base_len = len(self.file_list_model_collapse) * self.file_batch_size
             elif self.model_collapse_type == 'all_gen':
                 # Return the total number of files in the model collapse
                 # This includes both the original .mat files and the .npy files
                 # from all generations.
-                return len(self.file_list_data) + len(self.file_list_model_collapse) * self.file_batch_size
+                base_len = len(self.file_list_data) + len(self.file_list_model_collapse) * self.file_batch_size
         else:
             # Return the total number of files in the dataset
-            return len(self.file_list_data)
+            base_len = len(self.file_list_data)
+
+        if self.conditional:
+             base_len -= self.condition_step_size  # need t‑1 for every t
+             return base_len
+        else:
+             return base_len
 
     def __getitem__(self, idx):
         """
@@ -90,12 +110,35 @@ class CustomMatDataset(Dataset):
             idx (int): Index of the file (snapshot) to load.
             
         Returns:
-            torch.Tensor: Data loaded from the .mat file.
+            torch.Tensor: Data loaded from the .mat file. [shape: (C, H, W)]
+            If conditional, returns data from the previous time step as well.
+            Shape: ([t, t, t-1, t-1], H, W) == [C, H, W] t:current, t-1:previous temporal timestep
         """
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        Omega, Psi, U, V = None, None, None, None
+        if self.conditional:
+            idx_prev = idx # index for timestep t-1
+            idx_current = idx + self.condition_step_size
+            # print('idx_current:', idx_current, 'idx_prev:', idx_prev)
+        else:
+            idx_current = idx
+
+        data_tensor_current = self.load_data_single_step(idx_current)
+
+        if self.conditional:
+            # Get the prev time step data
+            data_tensor_prev = self.load_data_single_step(idx_prev)
+            data_tensor = torch.cat([data_tensor_current, data_tensor_prev], dim=0)
+            return data_tensor
+        # If not conditional, return the current time step data
+        else:
+            return data_tensor_current
+        
+
+    def load_data_single_step(self, idx):
+
+        Omega, Psi, U, V = None, None, None, None 
 
         # Loading correct index of files from .mat or .npy files (model_collapse)
         if not self.model_collapse:

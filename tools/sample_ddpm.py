@@ -11,6 +11,7 @@ from torch.amp import autocast
 from tqdm import tqdm
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
+from dataset.dataloader import CustomMatDataset
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -55,6 +56,12 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         print(f"All {test_config['num_test_batch']} batches already exist. Exiting.")
         sys.exit(0)
 
+    if diffusion_config['conditional']:
+     # ----- NEW: seed with real frame t0 (selected by test_file_start_idx) -----
+        # Initiate dataloader
+        seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=False)
+        t0_tensor = seed_dataset[0]
+
 
     # Loop over the number of batches    
     for batch_count in range(largest_file_number+1,test_config['num_test_batch']):
@@ -63,6 +70,12 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         model_config['im_channels'],
                         model_config['im_size'],
                         model_config['im_size'])).to(device)
+        
+        if diffusion_config['conditional']:
+            if batch_count == 0:
+                xt_prev = t0_tensor.to(device)
+            else:
+                xt_prev = xt[:, :model_config['im_channels']//2, :, :].to(device)
 
         # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
@@ -77,6 +90,10 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
+            if diffusion_config['conditional']:
+                # inject clean conditioning channels (u_{t-1}, v_{t-1})
+                xt[:, model_config['im_channels']//2:, :, :] = xt_prev.to(device)
+                
             with autocast('cuda'):
                 # Get prediction of noise
                 t_tensor = timesteps[i]
@@ -87,33 +104,44 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
                 if test_config['save_image'] or batch_count < 5:
 
-                    if i % 200 == 0 :
+                    if i % 250 == 0 :
                     
                         # Save x0
                         ims = torch.clamp(xt, -1., 1.).detach().cpu()
 
                         U_arr = ims[:,0,:,:].numpy()
                         V_arr = ims[:,1,:,:].numpy()
-
                         vmax_U = np.max(np.abs(U_arr))
                         vmax_V = np.max(np.abs(V_arr))
                     
                         # Loop over the grid
-                        for ax_count, ax in enumerate(axesU.flat):
-                            # Plot each matrix using the 'bwr' colormap
-                            plotU = ax.pcolorfast(U_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
-                            ax.axis('off')
-                        # Adjust spacing between subplots to avoid overlap
-                        figU.subplots_adjust(wspace=0.1, hspace=0.1)
+                        if nrows == 1:
+                            # Handle the case where there is only a single row of axes
+                                plotU = axesU.pcolorfast(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                                axesU.axis('off')
+                        else:
+                            for ax_count, ax in enumerate(axesU.flatten()):
+                                # Plot each matrix using the 'bwr' colormap
+                                plotU = ax.pcolorfast(U_arr[ax_count, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                                ax.axis('off')
+                            # Adjust spacing between subplots to avoid overlap
+                            figU.subplots_adjust(wspace=0.1, hspace=0.1)
+
                         figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                         # Loop over the grid
-                        for ax_count, ax in enumerate(axesV.flat):
-                            # Plot each matrix using the 'bwr' colormap
-                            plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                            ax.axis('off')
-                        # Adjust spacing between subplots to avoid overlap
-                        figV.subplots_adjust(wspace=0.1, hspace=0.1)
+                        if nrows == 1:
+                            # Handle the case where there is only a single row of axes
+                                plotV = axesV.pcolorfast(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                axesV.axis('off')
+                        else:
+                            for ax_count, ax in enumerate(axesV.flat):
+                                # Plot each matrix using the 'bwr' colormap
+                                plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                ax.axis('off')
+                            # Adjust spacing between subplots to avoid overlap
+                            figV.subplots_adjust(wspace=0.1, hspace=0.1)
+
                         figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
 
                         del plotU, plotV
@@ -121,9 +149,14 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         if test_config['save_data']:
             if dataset_config['normalize']:
                 # In-place normalization: xt = xt * std + mean
-                xt.mul_(std_tensor).add_(mean_tensor)
+                if diffusion_config['conditional']:
+                    xt_final = xt[:, model_config['im_channels']//2:, :, :].detach()
+                else:
+                    xt_final = xt.detach()
+                # print(xt_final.shape, std_tensor.shape, mean_tensor.shape)
 
-            xt_cpu = xt.detach().cpu()
+                xt_final.mul_(std_tensor).add_(mean_tensor)
+                xt_cpu = xt_final.cpu()
 
             np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
 
