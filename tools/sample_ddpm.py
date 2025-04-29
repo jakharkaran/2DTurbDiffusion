@@ -75,8 +75,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             if batch_count == 0:
                 xt_prev = t0_tensor.to(device)
             else:
-
-                xt_prev = xt[:, :model_config['im_channels']//2, :, :].detach().to(device)
+                xt_prev = xt_final
 
         # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
@@ -150,14 +149,13 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
                         del plotU, plotV
 
+        if dataset_config['normalize']:
+            xt_final = xt[:, model_config['im_channels']//2:, :, :].detach()
+        else:
+            xt_final = xt.detach()
+
         if test_config['save_data']:
             if dataset_config['normalize']:
-                # In-place normalization: xt = xt * std + mean
-                if diffusion_config['conditional']:
-                    xt_final = xt[:, model_config['im_channels']//2:, :, :].detach()
-                else:
-                    xt_final = xt.detach()
-                # print(xt_final.shape, std_tensor.shape, mean_tensor.shape)
 
                 xt_final.mul_(std_tensor).add_(mean_tensor)
                 xt_cpu = xt_final.cpu()

@@ -9,6 +9,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torch.amp import autocast
 import wandb
+import matplotlib.pyplot as plt
 
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
@@ -163,6 +164,29 @@ def train(args):
             # Sample random noise
             noise = torch.randn_like(im).to(device)
 
+            # fig, axes = plt.subplots(2,3, figsize=(15, 15))
+            # Ut = im[0, 0, :, :].cpu().detach().numpy()
+            # Vt = im[0, 1, :, :].cpu().detach().numpy()
+            # Ut0 = im[0, 2, :, :].cpu().detach().numpy()
+            # Vt0 = im[0, 3, :, :].cpu().detach().numpy()
+
+            # vmaxU = np.max(np.abs(Ut))
+            # vmaxV = np.max(np.abs(Vt))
+
+            # axes[0,0].pcolorfast(Ut0, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
+            # axes[0,1].pcolorfast(Ut, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
+            # axes[0,2].pcolorfast(Ut-Ut0, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
+            # axes[1,0].pcolorfast(Vt0, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
+            # axes[1,1].pcolorfast(Vt, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
+            # axes[1,2].pcolorfast(Vt-Vt0, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
+            # for ax in axes.flatten():
+            #     ax.set_aspect('equal')
+            #     ax.axis('off')
+            # plt.tight_layout()
+            # fig.savefig(os.path.join(save_dir, 'a.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+            # sys.exit()
+
+
             # Add noise to images according to timestep
             # Have dataloader output x_init
             # model(noisy_im, t) -> model(noisy_im, t, x_init)
@@ -183,6 +207,7 @@ def train(args):
                 if diffusion_config['conditional']:
 
                     noise_pred, noise_cond = model_out.split(2, dim=1)
+                    noise_cond = noise_cond.detach() 
                     # Exclude conditional channels from loss
                     loss_mse = criterion(noise_pred, noise[:, :model_config['im_channels']//2,:,:])
                 else:
