@@ -127,6 +127,7 @@ def train(args):
         std_tensor = torch.tensor(std.reshape(1, std.shape[0], 1, 1)).to(device)
 
     iteration = 0
+    noise_cond = None
     # Run training
     best_loss = 1e6 # initialize
     for epoch_idx in range(num_epochs):
@@ -156,20 +157,20 @@ def train(args):
             else:
                 im = batch_im.float().to(device)
 
-            # Sample random noise
-            noise = torch.randn_like(im).to(device)
-
-            if diffusion_config['conditional']:
-                # zero out noise for the conditional channels
-                noise[:, model_config['im_channels']//2:, ...] = 0.0
-
             # Sample timestep
             t = torch.randint(0, diffusion_config['num_timesteps'], (im.shape[0],)).to(device)
             
+            # Sample random noise
+            noise = torch.randn_like(im).to(device)
+
             # Add noise to images according to timestep
             # Have dataloader output x_init
             # model(noisy_im, t) -> model(noisy_im, t, x_init)
-            noisy_im = scheduler.add_noise(im, noise, t)
+            if diffusion_config['conditional']:
+                noisy_im = scheduler.add_noise_partial(im, noise, t, n_cond=model_config['im_channels']//2)
+            else:
+                noisy_im = scheduler.add_noise(im, noise, t)
+
             model_out = model(noisy_im, t)
 
             # make_dot(model_out, params=dict(model.named_parameters())).render("model_architecture", format="png")
@@ -180,8 +181,10 @@ def train(args):
             if train_config['loss'] == 'noise':
                 # Noise is predicted by the model
                 if diffusion_config['conditional']:
+
+                    noise_pred, noise_cond = model_out.split(2, dim=1)
                     # Exclude conditional channels from loss
-                    loss_mse = criterion(model_out[:, :model_config['im_channels']//2,:,:], noise[:, :model_config['im_channels']//2,:,:])
+                    loss_mse = criterion(noise_pred, noise[:, :model_config['im_channels']//2,:,:])
                 else:
                     loss_mse = criterion(model_out, noise) 
 
@@ -198,6 +201,7 @@ def train(args):
                     "epoch": epoch_idx + 1,
                     "loss_mse": loss_mse,
                     "iteration": iteration,
+                    "noise_cond": torch.mean(torch.abs(noise_cond)),
                 }
 
             ###### Divergence Loss

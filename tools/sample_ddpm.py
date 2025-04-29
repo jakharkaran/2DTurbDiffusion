@@ -75,7 +75,8 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             if batch_count == 0:
                 xt_prev = t0_tensor.to(device)
             else:
-                xt_prev = xt[:, :model_config['im_channels']//2, :, :].to(device)
+
+                xt_prev = xt[:, :model_config['im_channels']//2, :, :].detach().to(device)
 
         # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
@@ -100,8 +101,11 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                 noise_pred = model(xt, t_tensor)
                 
                 # Use scheduler to get x0 and xt-1
-                xt, x0_pred = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
-
+                if diffusion_config['conditional']:
+                    xt = scheduler.sample_prev_timestep_partial(xt, noise_pred, t_tensor, n_cond=model_config['im_channels']//2)
+                else:
+                    xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                
                 if test_config['save_image'] or batch_count < 5:
 
                     if i % 250 == 0 :
@@ -109,8 +113,8 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         # Save x0
                         ims = torch.clamp(xt, -1., 1.).detach().cpu()
 
-                        U_arr = ims[:,0,:,:].numpy()
-                        V_arr = ims[:,1,:,:].numpy()
+                        U_arr = ims[:,2,:,:].numpy()
+                        V_arr = ims[:,3,:,:].numpy()
                         vmax_U = np.max(np.abs(U_arr))
                         vmax_V = np.max(np.abs(V_arr))
                     
