@@ -59,7 +59,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     if diffusion_config['conditional']:
      # ----- NEW: seed with real frame t0 (selected by test_file_start_idx) -----
         # Initiate dataloader
-        seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=False)
+        seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=True)
         t0_tensor = seed_dataset[0]
 
 
@@ -73,7 +73,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         
         if diffusion_config['conditional']:
             if batch_count == 0:
-                xt_prev = t0_tensor.to(device)
+                xt_prev = t0_tensor[:model_config['im_channels']-2, :, :].to(device)
             else:
                 xt_prev = xt_final
 
@@ -90,27 +90,36 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
+            t_tensor = timesteps[i]
+            # print('********** ', t_tensor, t_tensor.squeeze(0))
+
+
             if diffusion_config['conditional']:
+                
+                noise = torch.randn_like(xt_prev.unsqueeze(0)).to(device)
+                # print(xt_prev.unsqueeze(0).shape, noise.shape)
+                xt_prev_noisy = scheduler.add_noise(xt_prev.unsqueeze(0), noise, t_tensor)
                 # inject clean conditioning channels (u_{t-1}, v_{t-1})
-                xt[:, model_config['im_channels']//2:, :, :] = xt_prev.to(device)
+                xt[:, :model_config['im_channels']-2, :, :] = xt_prev_noisy.to(device)
                 
             with autocast('cuda'):
                 # Get prediction of noise
-                t_tensor = timesteps[i]
                 noise_pred = model(xt, t_tensor)
                 
                 # Use scheduler to get x0 and xt-1
-                if diffusion_config['conditional']:
-                    xt = scheduler.sample_prev_timestep_partial(xt, noise_pred, t_tensor, n_cond=model_config['im_channels']//2)
-                else:
-                    xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
+                # if diffusion_config['conditional']:
+                #     xt = scheduler.sample_prev_timestep_partial(xt, noise_pred, t_tensor, n_cond=model_config['im_channels']//2)
+                # else:
+                xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
                 
                 if test_config['save_image'] or batch_count < 5:
 
                     if i % 250 == 0 :
                     
                         # Save x0
-                        ims = torch.clamp(xt, -1., 1.).detach().cpu()
+                        # ims = torch.clamp(xt, -1., 1.).detach().cpu()
+
+                        ims = xt.detach().cpu()
 
                         U_arr = ims[:,2,:,:].numpy()
                         V_arr = ims[:,3,:,:].numpy()
@@ -121,6 +130,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         if nrows == 1:
                             # Handle the case where there is only a single row of axes
                                 plotU = axesU.pcolorfast(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                                # plotU = axesU.contourf(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
                                 axesU.axis('off')
                         else:
                             for ax_count, ax in enumerate(axesU.flatten()):
@@ -136,6 +146,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         if nrows == 1:
                             # Handle the case where there is only a single row of axes
                                 plotV = axesV.pcolorfast(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                # plotV = axesV.contourf(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
                                 axesV.axis('off')
                         else:
                             for ax_count, ax in enumerate(axesV.flat):
@@ -149,16 +160,16 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
                         del plotU, plotV
 
-        if dataset_config['normalize']:
-            xt_final = xt[:, model_config['im_channels']//2:, :, :].detach()
+        if diffusion_config['conditional']:
+            xt_final = xt[:, :model_config['im_channels']-2, :, :].detach()
         else:
             xt_final = xt.detach()
 
         if test_config['save_data']:
             if dataset_config['normalize']:
-
                 xt_final.mul_(std_tensor).add_(mean_tensor)
-                xt_cpu = xt_final.cpu()
+
+            xt_cpu = xt_final.cpu()
 
             np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
 
@@ -204,7 +215,7 @@ def infer(args):
 
     # Load weights
     model.load_state_dict(torch.load(os.path.join(train_config['save_dir'],
-                                                  train_config['ckpt_name']), map_location=device))
+                                                  train_config['best_ckpt_name']), map_location=device))
     model.eval()
     
     # Create the noise scheduler

@@ -190,12 +190,16 @@ def train(args):
             # Add noise to images according to timestep
             # Have dataloader output x_init
             # model(noisy_im, t) -> model(noisy_im, t, x_init)
-            if diffusion_config['conditional']:
-                noisy_im = scheduler.add_noise_partial(im, noise, t, n_cond=model_config['im_channels']//2)
-            else:
-                noisy_im = scheduler.add_noise(im, noise, t)
+            # if diffusion_config['conditional']:
+            #     noisy_im = scheduler.add_noise_partial(im, noise, t, n_cond=model_config['im_channels']//2)
+
+            # else:
+            noisy_im = scheduler.add_noise(im, noise, t)
 
             model_out = model(noisy_im, t)
+
+            # print('Model out: ', noise.shape)
+            # sys.exit()
 
             # make_dot(model_out, params=dict(model.named_parameters())).render("model_architecture", format="png")
             # summary(model, input_size=(10, 10))
@@ -206,10 +210,27 @@ def train(args):
                 # Noise is predicted by the model
                 if diffusion_config['conditional']:
 
-                    noise_pred, noise_cond = model_out.split(2, dim=1)
-                    noise_cond = noise_cond.detach() 
+                    # noise_cond, noise_im  = torch.split(
+                    #     noise, 
+                    #     [model_config['im_channels'] * dataset_config['num_prev_conditioning_steps'],model_config['im_channels']], 
+                    #     dim=1
+                    # )
+                    # print([model_config['pred_channels'] * dataset_config['num_prev_conditioning_steps'],model_config['pred_channels']])
+                    # noise_cond, noise_im  = torch.split(
+                    #     noise, 
+                    #     [model_config['pred_channels'] * dataset_config['num_prev_conditioning_steps'],model_config['pred_channels']], 
+                    #     dim=1
+                    # )
+
+                    # print('Noise shape: ', noise.shape, noise_cond.shape, noise_im.shape)
+                    # sys.exit()
+                    # noise_pred, noise_cond = model_out.split(2, dim=1)
+                    # noise_cond = noise_cond.detach() 
                     # Exclude conditional channels from loss
-                    loss_mse = criterion(noise_pred, noise[:, :model_config['im_channels']//2,:,:])
+                    # loss_mse = criterion(noise_pred, noise[:, :model_config['im_channels']//2,:,:])
+                    # loss_mse = criterion(model_out, noise[:, :model_config['im_channels']//2,:,:])
+                    loss_mse = criterion(model_out, noise)
+
                 else:
                     loss_mse = criterion(model_out, noise) 
 
@@ -226,7 +247,7 @@ def train(args):
                     "epoch": epoch_idx + 1,
                     "loss_mse": loss_mse,
                     "iteration": iteration,
-                    "noise_cond": torch.mean(torch.abs(noise_cond)),
+                    # "noise_cond": torch.mean(torch.abs(noise_cond)),
                 }
 
             ###### Divergence Loss

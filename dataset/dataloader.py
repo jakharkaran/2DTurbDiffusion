@@ -16,26 +16,28 @@ class CustomMatDataset(Dataset):
             data_dir (str): Directory with all the .mat files.
             file_range (tuple): Range of file numbers (start, end).
         """
+
+        # conditional parameters
+        self.condition_step_size = dataset_config['condition_step_size'] 
+        self.conditional = conditional
+        self.num_prev_conditioning_steps = dataset_config['num_prev_conditioning_steps']  # number of previous time steps to condition on
+
         self.data_dir = dataset_config['data_dir']
         self.file_range = dataset_config['file_range']
+        self.step_size = dataset_config['step_size']
 
         if training:
             self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
         else:
             # For testing cnditional diffusion model
             self.file_test_start_idx = test_config['test_file_start_idx']
-            self.file_numbers = range(self.file_test_start_idx, self.file_test_start_idx + 1)
+            self.file_numbers = range(self.file_test_start_idx, (self.file_test_start_idx + self.condition_step_size*self.num_prev_conditioning_steps) + 1)
 
-        self.step_size = dataset_config['step_size']
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
         self.downsample_factor = dataset_config['downsample_factor']
         self.downsample_procedure = dataset_config['downsample_procedure']
         self.normalize = dataset_config['normalize']
-
-        # conditional parameters
-        self.condition_step_size = dataset_config['condition_step_size'] 
-        self.conditional = conditional
 
         # model collapse parameters
         self.model_collapse = train_config['model_collapse']
@@ -99,7 +101,7 @@ class CustomMatDataset(Dataset):
             base_len = len(self.file_list_data)
 
         if self.conditional:
-             base_len -= self.condition_step_size  # need t‑1 for every t
+             base_len -= (self.condition_step_size * self.num_prev_conditioning_steps)  # need t‑k, ... t-2, t-1 for every t
              return base_len
         else:
              return base_len
@@ -118,23 +120,15 @@ class CustomMatDataset(Dataset):
             idx = idx.tolist()
 
         if self.conditional:
-            idx_prev = idx # index for timestep t-1
-            idx_current = idx + self.condition_step_size
-            # print('idx_current:', idx_current, 'idx_prev:', idx_prev)
+            idx_arr = [idx + step * self.condition_step_size for step in range(0, self.num_prev_conditioning_steps+1)]
+            data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
+            data_tensor = torch.cat(data_tensor_list, dim=0)
+            # print('idx:', idx_arr)
         else:
-            idx_current = idx
+            data_tensor = self.load_data_single_step(idx)
 
-        data_tensor_current = self.load_data_single_step(idx_current)
-
-        if self.conditional:
-            # Get the prev time step data
-            data_tensor_prev = self.load_data_single_step(idx_prev)
-            data_tensor = torch.cat([data_tensor_current, data_tensor_prev], dim=0)
-            return data_tensor
-        # If not conditional, return the current time step data
-        else:
-            return data_tensor_current
-        
+        # print('data_tensor shape:', data_tensor.shape)
+        return data_tensor
 
     def load_data_single_step(self, idx):
 

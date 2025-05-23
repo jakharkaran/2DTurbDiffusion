@@ -27,9 +27,14 @@ class LinearNoiseScheduler:
         original_shape = original.shape
         batch_size = original_shape[0]
         
+        # if batch_size > 1:
         sqrt_alpha_cum_prod = self.sqrt_alpha_cum_prod.to(original.device)[t].reshape(batch_size)
         sqrt_one_minus_alpha_cum_prod = self.sqrt_one_minus_alpha_cum_prod.to(original.device)[t].reshape(batch_size)
-        
+
+        # else:
+        #     sqrt_alpha_cum_prod = self.sqrt_alpha_cum_prod.to(original.device)[t]
+        #     sqrt_one_minus_alpha_cum_prod = self.sqrt_one_minus_alpha_cum_prod.to(original.device)[t]
+
         # Reshape till (B,) becomes (B,1,1,1) if image is (B,C,H,W)
         for _ in range(len(original_shape) - 1):
             sqrt_alpha_cum_prod = sqrt_alpha_cum_prod.unsqueeze(-1)
@@ -96,7 +101,8 @@ class LinearNoiseScheduler:
         :return:
         """
         x_pred, x_cond = xt[:, :n_cond], xt[:, n_cond:]
-        xt1, _ = self.sample_prev_timestep(x_pred, noise_pred[:, :n_cond], t.squeeze(0))
+        # xt1, _ = self.sample_prev_timestep(x_pred, noise_pred[:, :n_cond], t.squeeze(0))
+        xt1, _ = self.sample_prev_timestep(x_pred, noise_pred, t.squeeze(0))
 
         return torch.cat([xt1, x_cond], dim=1).to(xt.device)
         
