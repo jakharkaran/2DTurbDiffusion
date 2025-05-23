@@ -45,7 +45,7 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'MC'
+  task_name: 'periodic'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001

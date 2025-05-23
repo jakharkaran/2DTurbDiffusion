@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 def get_time_embedding(time_steps, temb_dim):
     r"""
@@ -23,6 +23,53 @@ def get_time_embedding(time_steps, temb_dim):
     t_emb = torch.cat([torch.sin(t_emb), torch.cos(t_emb)], dim=-1)
     return t_emb
 
+class PeriodicConvTranspose2d(nn.Module):
+    """
+      Transposed convolution with periodic (circular) padding and wrap. 
+      """
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
+        super().__init__()
+        self.convT      = nn.ConvTranspose2d(in_channels, out_channels,
+                                             kernel_size, stride, padding)
+        self.kernel_size = kernel_size
+        self.stride      = stride
+        self.padding     = padding
+
+    def forward(self, x):
+        # 1) Compute the *desired* output size:
+        H_in, W_in = x.shape[2], x.shape[3]
+        H_out = (H_in - 1) * self.stride - 2*self.padding + self.kernel_size
+        W_out = (W_in - 1) * self.stride - 2*self.padding + self.kernel_size
+
+        # print("Input (rounded):")
+        # print(x[0,0].round())
+
+        # 2) Circular-pad the input
+        x_pad = F.pad(x,
+                      (self.padding, self.padding,
+                       self.padding, self.padding),
+                      mode='circular')
+        # print("\nPadded (rounded):")
+        # print(x_pad[0,0].round())
+
+        # 3) Transposed-convolution
+        y = self.convT(x_pad)
+        # print("\nAfter conv_transpose (rounded):")
+        # print(y[0,0].round())
+
+        # 4) Crop out the extra margins:
+        #    total extra = 2 * (padding * stride),
+        #    so each side we crop padding*stride
+        crop = self.padding * self.stride
+        y = y[:,
+              :,
+              crop: crop + H_out,
+              crop: crop + W_out]
+        # print("\nFinal output (rounded):")
+        # print(y[0,0].round())
+
+        return y
+
 
 class DownBlock(nn.Module):
     r"""
@@ -43,7 +90,7 @@ class DownBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1),
+                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
                 )
                 for i in range(num_layers)
             ]
@@ -61,7 +108,7 @@ class DownBlock(nn.Module):
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
                     nn.Conv2d(out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1),
+                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
                 )
                 for _ in range(num_layers)
             ]
@@ -77,12 +124,12 @@ class DownBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
                 for i in range(num_layers)
             ]
         )
         self.down_sample_conv = nn.Conv2d(out_channels, out_channels,
-                                          4, 2, 1) if self.down_sample else nn.Identity()
+                                          kernel_size=4, stride=2, padding=1, padding_mode='circular') if self.down_sample else nn.Identity()
     
     def forward(self, x, t_emb):
         out = x
@@ -125,7 +172,7 @@ class MidBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1),
+                              padding=1, padding_mode='circular'),
                 )
                 for i in range(num_layers+1)
             ]
@@ -142,7 +189,7 @@ class MidBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
                 )
                 for _ in range(num_layers+1)
             ]
@@ -159,7 +206,7 @@ class MidBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
                 for i in range(num_layers+1)
             ]
         )
@@ -214,7 +261,7 @@ class UpBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1),
+                              padding=1, padding_mode='circular'),
                 )
                 for i in range(num_layers)
             ]
@@ -231,7 +278,7 @@ class UpBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
                 )
                 for _ in range(num_layers)
             ]
@@ -252,12 +299,14 @@ class UpBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
                 for i in range(num_layers)
             ]
         )
-        self.up_sample_conv = nn.ConvTranspose2d(in_channels // 2, in_channels // 2,
-                                                 4, 2, 1) \
+        # self.up_sample_conv = nn.ConvTranspose2d(in_channels // 2, in_channels // 2,
+        #                                          4, 2, 1) \
+        self.up_sample_conv = PeriodicConvTranspose2d(in_channels // 2, in_channels // 2,
+                                                 kernel_size=4, stride=2, padding=1) \
             if self.up_sample else nn.Identity()
     
     def forward(self, x, out_down, t_emb):
@@ -281,8 +330,7 @@ class UpBlock(nn.Module):
             out = out + out_attn
 
         return out
-
-
+    
 class Unet(nn.Module):
     r"""
     Unet model comprising
@@ -311,7 +359,7 @@ class Unet(nn.Module):
         )
 
         self.up_sample = list(reversed(self.down_sample))
-        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1))
+        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode='circular')
         
         self.downs = nn.ModuleList([])
         for i in range(len(self.down_channels)-1):
@@ -329,13 +377,18 @@ class Unet(nn.Module):
                                     self.t_emb_dim, up_sample=self.down_sample[i], num_layers=self.num_up_layers))
         
         self.norm_out = nn.GroupNorm(8, 16)
-        self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1)
+        self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1, padding_mode='circular')
     
     def forward(self, x, t):
+    # def forward(self, x, t, x_init=None):
         # Shapes assuming downblocks are [C1, C2, C3, C4]
         # Shapes assuming midblocks are [C4, C4, C3]
         # Shapes assuming downsamples are [True, True, False]
         # B x C x H x W
+
+        # concatenate conditional x_init along channel dim
+        # x = torch.cat([x, x_init], dim=1) if x_init is not None else x
+        
         out = self.conv_in(x)
         # B x C1 x H x W
         
