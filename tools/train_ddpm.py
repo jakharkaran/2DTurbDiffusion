@@ -9,6 +9,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torch.amp import autocast
 import wandb
+import random
 
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
@@ -47,6 +48,12 @@ def train(args):
     logging_config = config['logging_params']
     test_config = config['test_params']
 
+    GLOBAL_SEED = train_config['global_seed']
+    # -------- main-process seeding -------------------------------------------
+    random.seed(GLOBAL_SEED)
+    np.random.seed(GLOBAL_SEED)
+    torch.manual_seed(GLOBAL_SEED)
+
     if logging_config['log_to_wandb']:
         # Set up wandb
         wandb.login()
@@ -58,10 +65,19 @@ def train(args):
     scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
-        
+            
+    def worker_init_fn(worker_id):
+        # Each worker gets a *unique* but *deterministic* stream
+        worker_seed = GLOBAL_SEED + worker_id
+        np.random.seed(worker_seed)          # NumPy ops in transforms
+        random.seed(worker_seed)             # Python’s `random` calls
+        torch.manual_seed(worker_seed)       # Torch ops inside the Dataset
+    dl_gen = torch.Generator().manual_seed(GLOBAL_SEED)
+
     # Initiate dataloader
     dataset = CustomMatDataset(dataset_config, train_config, test_config)
-    turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
+    turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
+                                 generator=dl_gen, worker_init_fn=worker_init_fn)
         
     # Instantiate the model
     model = Unet(model_config)

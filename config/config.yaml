@@ -45,11 +45,12 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'periodic'
+  task_name: 'periodic2'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001
   loss: 'noise' # sample noise 
+  global_seed: 10
 
   divergence_loss: !!bool False # True False
   divergence_loss_type: 'direct_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
