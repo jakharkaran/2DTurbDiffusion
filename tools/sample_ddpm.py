@@ -11,7 +11,7 @@ from torch.amp import autocast
 from tqdm import tqdm
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
-
+import random
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -23,6 +23,13 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     Sample stepwise by going backward one timestep at a time.
     We save the x0 predictions
     """
+
+    GLOBAL_SEED = train_config['global_seed']
+    # -------- main-process seeding -------------------------------------------
+    random.seed(GLOBAL_SEED)
+    np.random.seed(GLOBAL_SEED)
+    torch.manual_seed(GLOBAL_SEED)
+
     if dataset_config['normalize']:
         mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
         mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
