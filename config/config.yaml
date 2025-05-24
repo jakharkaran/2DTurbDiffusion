@@ -55,6 +55,7 @@ train_params:
   lr: 0.0001
   loss: 'noise' # sample noise 
   condition_noise: !!bool False  # True False Noise is added to the conditioning ** Not implemented
+  global_seed: 10
 
   divergence_loss: !!bool False # True False
   divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
