@@ -15,6 +15,15 @@ class CustomMatDataset(Dataset):
         Args:
             data_dir (str): Directory with all the .mat files.
             file_range (tuple): Range of file numbers (start, end).
+
+        Returns:
+            data_tensor (torch.Tensor): Data loaded from the .mat file.
+            If unconditional T=1; if conditional, returns data from the previous time steps as well [shape: (B, T, C, H, W)]
+            B: batch size
+            T: time steps (numerical/autoregressive): t, t-1, t-2, ... t-k
+            C: channels: U, V, Psi, Omega
+            H: height of the grid
+            W: width of the grid
         """
 
         # conditional parameters
@@ -31,7 +40,7 @@ class CustomMatDataset(Dataset):
         else:
             # For testing cnditional diffusion model
             self.file_test_start_idx = test_config['test_file_start_idx']
-            self.file_numbers = range(self.file_test_start_idx, (self.file_test_start_idx + self.condition_step_size*self.num_prev_conditioning_steps) + 1)
+            self.file_numbers = range(self.file_test_start_idx, (self.file_test_start_idx + self.step_size*self.condition_step_size*self.num_prev_conditioning_steps) + 1)
 
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
@@ -114,18 +123,23 @@ class CustomMatDataset(Dataset):
         Returns:
             torch.Tensor: Data loaded from the .mat file. [shape: (C, H, W)]
             If conditional, returns data from the previous time step as well.
-            Shape: ([t, t, t-1, t-1], H, W) == [C, H, W] t:current, t-1:previous temporal timestep
+            Shape: ([t, t, t-1, t-1],C, H, W) == [T, C, H, W] t:current, t-1:previous temporal timestep
         """
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
         if self.conditional:
-            idx_arr = [idx + step * self.condition_step_size for step in range(0, self.num_prev_conditioning_steps+1)]
+            # idx_arr = [idx + step * self.condition_step_size for step in range(0, self.num_prev_conditioning_steps+1)]
+            # data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
+            # data_tensor = torch.cat(data_tensor_list, dim=0)
+
+            idx_arr = [idx + step * self.condition_step_size for step in reversed(range(0, self.num_prev_conditioning_steps+1))]
             data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
-            data_tensor = torch.cat(data_tensor_list, dim=0)
+            data_tensor = torch.stack(data_tensor_list, dim=0)  # shape: (T, C, H, W) T: t, t-1, t-2, ...
             # print('idx:', idx_arr)
         else:
             data_tensor = self.load_data_single_step(idx)
+            data_tensor = data_tensor.unsqueeze(0)  # shape: (1, C, H, W)
 
         # print('data_tensor shape:', data_tensor.shape)
         return data_tensor
@@ -265,10 +279,10 @@ class CustomMatDataset(Dataset):
             std_tensor = torch.tensor(std).reshape(std.shape[0], 1, 1)
             data_tensor_normalized = (data_tensor - mean_tensor) / std_tensor
 
-            return data_tensor_normalized
+            return data_tensor_normalized # shape: [C, H, W]
         else:
             # print(data_tensor.shape)
-            return data_tensor
+            return data_tensor.unsqueeze(0) # shape: [C, H, W]
 
     def downsample_array(self, arr, x_factor, y_factor):
         """

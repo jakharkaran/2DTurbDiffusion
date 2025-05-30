@@ -66,7 +66,8 @@ def train(args):
     scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
-            
+
+    # Set the seed for reproducibility in the dataloader
     def worker_init_fn(worker_id):
         # Each worker gets a *unique* but *deterministic* stream
         worker_seed = GLOBAL_SEED + worker_id
@@ -120,10 +121,6 @@ def train(args):
     optimizer = Adam(model.parameters(), lr=train_config['lr'])
     criterion = torch.nn.MSELoss()
 
-    if train_config['divergence_loss_type'] == 'denoise_sample':
-        # Precompute timesteps for denoising
-        timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
-
     # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # 2D Trubulence System Parameter
@@ -143,18 +140,34 @@ def train(args):
         mean_tensor = torch.tensor(mean.reshape(1, mean.shape[0], 1, 1)).to(device)
         std_tensor = torch.tensor(std.reshape(1, std.shape[0], 1, 1)).to(device)
 
+        if train_config['divergence_loss_type'] == 'denoise_sample':
+            # Precompute timesteps for denoising
+            timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+
     iteration = 0
     noise_cond = None
     # Run training
     best_loss = 1e6 # initialize
     for epoch_idx in range(num_epochs):
         losses = []
-        # for im in tqdm(mnist_loader):
-        for batch_im in tqdm(turb_dataloader):
+
+        for batch_data in tqdm(turb_dataloader):
 
             iteration += 1
 
             optimizer.zero_grad()
+
+            if diffusion_config['conditional']:
+                B, T, C, H, W = batch_data.shape # [B, T, C, H, W]; T: t, t-1, t-2, ...; C: U, V
+
+                # Split batch_data along T dimension
+                batch_im = batch_data[:, 0, ...]      # [B, C, H, W] (first T)
+                # [B, T-1, C, H, W] (remaining T), Stack T-1 and C into channel dimension -> [B, (T-1)*C, H, W]
+                batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)      
+            else:
+                batch_cond = None
+                # For unconditional model, batch_data is [B, 1, C, H, W], remove T dimension
+                batch_im = batch_data[:, 0, :, :, :] # [B, C, H, W]
 
             if train_config['divergence_loss'] and train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
                 # Calculate split sizes for the two branches
@@ -212,7 +225,14 @@ def train(args):
             # else:
             noisy_im = scheduler.add_noise(im, noise, t)
 
-            model_out = model(noisy_im, t)
+            if diffusion_config['conditional']:
+                # Concatenate the conditioning data with the noisy image
+                batch_cond = batch_cond.float().to(device)
+                model_in = torch.cat((noisy_im, batch_cond), dim=1)
+            else:
+                model_in = noisy_im
+
+            model_out = model(model_in, t)
 
             # print('Model out: ', noise.shape)
             # sys.exit()
@@ -351,12 +371,19 @@ def train(args):
 
             losses.append(loss.item())
             loss.backward()
+            # # Trying with gradient clipping
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25) # Previously 1.0
             optimizer.step()
 
             if logging_config['log_to_wandb']:
                 log_data["loss"] = loss
                 log_data["best_loss"] = best_loss
                 wandb.log(log_data) # Logging all data to wandb
+
+        # Ensuring the best loss is updated in the later epochs
+        # Minimal loss in early epochs may not be the best loss -> outputs unphysical results
+        if epoch_idx == 150:
+            best_loss = loss
 
         if best_loss > loss:
             best_loss = loss

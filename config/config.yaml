@@ -1,7 +1,7 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool False # not set-up - can be setup for logging to screen
   diagnostic_logs: !!bool False # not set-up
-  log_to_wandb: !!bool True # True False
+  log_to_wandb: !!bool False # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: '2DTurb-diffusion-condition'
   wandb_group: 'static'
@@ -14,7 +14,7 @@ dataset_params:
   # data_dir: 'Re500_fkx4fky4_r0.1_b20/2D_64_spectral_dt0.02_noise_2500/' # training on emulator data
   # data_dir: '2D_64_spectral_dt0.02_noise_2500/'
 
-  file_range: [5000, 7500] # range of files to load
+  file_range: [5000, 20000] # range of files to load
   # file_range: [55000, 104999] # range of files to load
   # file_range: [5000, 24999] # range of files to load
   # file_range: [30000, 54999] # range of files to load
@@ -24,7 +24,7 @@ dataset_params:
   step_size: 1 # step size for data loading (every sample or every 10th sample)
   # num_samples: 2500 # total samples used for training = file_range[1] - file_range[0] // step_size
   condition_step_size: 3 # step size for conditioning data loading (every sample or every 10th sample)
-  num_prev_conditioning_steps : 3 # 1 2 3 4 5 # Number of previous time steps to use for conditioning
+  num_prev_conditioning_steps : 1 # 1 2 3 4 # Number of previous time steps to use for conditioning t-1, t-2, t-3, t-4
   downsample_factor: 1
   downsample_procedure: 'spectral' # spectral physical
   normalize: !!bool True
@@ -36,8 +36,8 @@ diffusion_params:
   beta_end : 0.02
 
 model_params: # U-NET
-  im_channels : 8 # 2 when conditional=False, 4/6... when conditional=True
-  pred_channels: 8
+  im_channels : 4 # 2 when conditional=False, 4, 6... when conditional=True
+  pred_channels: 2 # =im_channels for conditional=False
   im_size : 64
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
@@ -49,13 +49,13 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'cond_8'
+  task_name: 'cond0'
   batch_size: 16
   num_epochs: 200
   lr: 0.0001
   loss: 'noise' # sample noise 
   condition_noise: !!bool False  # True False Noise is added to the conditioning ** Not implemented
-  global_seed: 10
+  global_seed: 0
 
   divergence_loss: !!bool False # True False
   divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)

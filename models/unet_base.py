@@ -378,7 +378,7 @@ class Unet(nn.Module):
                                     self.t_emb_dim, up_sample=self.down_sample[i], num_layers=self.num_up_layers))
         
         self.norm_out = nn.GroupNorm(8, 16)
-        # self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1)
+        # self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1, padding_mode='circular')
         self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1, padding_mode='circular')
 
     
