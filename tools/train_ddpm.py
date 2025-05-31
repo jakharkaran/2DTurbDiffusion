@@ -37,7 +37,7 @@ def train(args):
             print("Error in configuration file:", exc)
             sys.exit(1)
     
-    print('Configuration loaded: {config}')
+    print(f'Configuration loaded: {config}')
 
 
     ########################

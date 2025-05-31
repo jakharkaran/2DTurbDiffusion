@@ -55,6 +55,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             file_numbers = [int(os.path.splitext(f)[0]) for f in npy_files]
             largest_file_number = max(file_numbers)
             print(f"Data exists in the directory. Largest file number: {largest_file_number}")
+
         else:
             largest_file_number = -1  # No files found
             print("No .npy files found in the directory.")    
@@ -66,24 +67,53 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
     if diffusion_config['conditional']:
      # ----- NEW: seed with real frame t0 (selected by test_file_start_idx) -----
-        # Initiate dataloader
-        seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=True)
-        t0_tensor = seed_dataset[0]
+
+        if npy_files:
+            # If files exist, load the second-last one (avoiding errorsif last saved file is corrupted)
+            print(f"Loading last saved batch: {largest_file_number}")
+            largest_file_number -= 1
+
+            idx_arr = [largest_file_number - step for step in range(0, dataset_config['num_prev_conditioning_steps'])]
+            data_tensor_list = [np.load(os.path.join(train_config['save_dir'], 'data', run_num, f'{idx}.npy')) for idx in idx_arr] 
+            # Each list in data_tensor_list has shape (B, C, H, W)
+
+            # Concatenate each list along the channel dimension
+            batch_cond = torch.from_numpy(np.concatenate(data_tensor_list, axis=1)) # [B, (T-1)*C, H, W]
+            # print('idx_arr: ', idx_arr)
+            # print('data_tensor shape: ', batch_cond.shape)
+            # sys.exit()
+
+        else:
+            # Initiate dataloader
+            seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=True)
+            t0_tensor = seed_dataset[0] # [T, C, H, W]
+
+            T, C, H, W = t0_tensor.shape
+            batch_cond = t0_tensor[1:, ...].reshape(1, (T-1)*C, H, W) # [T-1, C, H, W] -> [1, (T-1)*C, H, W]
+
+    else:
+        batch_cond = None
+    print('batch_cond shape: ', batch_cond.shape)
+    batch_cond = batch_cond.float().to(device)
 
 
     # Loop over the number of batches    
     for batch_count in range(largest_file_number+1,test_config['num_test_batch']):
 
         xt = torch.randn((test_config['batch_size'],
-                        model_config['im_channels'],
+                        model_config['pred_channels'],
                         model_config['im_size'],
-                        model_config['im_size'])).to(device)
+                        model_config['im_size'])).float().to(device)
         
-        if diffusion_config['conditional']:
-            if batch_count == 0:
-                xt_prev = t0_tensor[:model_config['im_channels']-2, :, :].to(device)
-            else:
-                xt_prev = xt_final
+        
+        # if diffusion_config['conditional']:
+        #     # model_in = torch.cat((xt, batch_cond), dim=1) # [B, C, H, W]
+        #     # if batch_count == 0:
+        #     #     xt_prev = t0_tensor[:model_config['im_channels']-2, :, :].to(device)
+        #     # else:
+        #     #     xt_prev = xt_final
+
+        #     print('model_in shape: ', model_in.shape)
 
         # Create directories and figure objects for saving images if needed
         if test_config['save_image'] or batch_count < 5:
@@ -103,16 +133,20 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
 
             if diffusion_config['conditional']:
+                model_in = torch.cat((xt, batch_cond), dim=1) # [B, C, H, W]
                 
-                noise = torch.randn_like(xt_prev.unsqueeze(0)).to(device)
-                # print(xt_prev.unsqueeze(0).shape, noise.shape)
-                xt_prev_noisy = scheduler.add_noise(xt_prev.unsqueeze(0), noise, t_tensor)
-                # inject clean conditioning channels (u_{t-1}, v_{t-1})
-                xt[:, :model_config['im_channels']-2, :, :] = xt_prev_noisy.to(device)
+                # noise = torch.randn_like(xt_prev.unsqueeze(0)).to(device)
+                # # print(xt_prev.unsqueeze(0).shape, noise.shape)
+                # xt_prev_noisy = scheduler.add_noise(xt_prev.unsqueeze(0), noise, t_tensor)
+                # # inject clean conditioning channels (u_{t-1}, v_{t-1})
+                # xt[:, :model_config['im_channels']-2, :, :] = xt_prev_noisy.to(device)
+
+            else:
+                model_in = xt
                 
             with autocast('cuda'):
                 # Get prediction of noise
-                noise_pred = model(xt, t_tensor)
+                noise_pred = model(model_in, t_tensor)
                 
                 # Use scheduler to get x0 and xt-1
                 # if diffusion_config['conditional']:
@@ -122,15 +156,22 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                 
                 if test_config['save_image'] or batch_count < 5:
 
-                    if i % 250 == 0 :
-                    
+                    # if i % 250 == 0 :
+                    if i == 0 :
+
                         # Save x0
                         # ims = torch.clamp(xt, -1., 1.).detach().cpu()
 
+
+                        # ims = model_in.detach().cpu()
+
+                        # U_arr = ims[:,0,:,:].numpy()
+                        # V_arr = ims[:,2,:,:].numpy()
+
                         ims = xt.detach().cpu()
 
-                        U_arr = ims[:,2,:,:].numpy()
-                        V_arr = ims[:,3,:,:].numpy()
+                        U_arr = ims[:,0,:,:].numpy()
+                        V_arr = ims[:,1,:,:].numpy()
                         vmax_U = np.max(np.abs(U_arr))
                         vmax_V = np.max(np.abs(V_arr))
                     
@@ -169,7 +210,20 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                         del plotU, plotV
 
         if diffusion_config['conditional']:
-            xt_final = xt[:, :model_config['im_channels']-2, :, :].detach()
+            # Shift batch_cond to remove the last time step and add the new one at the beginning
+            # batch_cond: shape [1, (T-1)*C, H, W]
+            # Remove last C channels, prepend new C channels from xt
+            _, C, H, W = xt.shape
+            batch_cond = torch.cat(
+                (xt.detach(), batch_cond[:, :-C, :, :].detach()),
+                dim=1
+            )
+
+            print('batch_cond subtracted shape: ',  batch_cond[:, :-C, :, :].shape)
+            print('xt shape: ', xt.shape)
+            print('batch_cond shape: ', batch_cond.shape)
+            
+            xt_final = xt[:, :model_config['pred_channels'], :, :].detach()
         else:
             xt_final = xt.detach()
 
