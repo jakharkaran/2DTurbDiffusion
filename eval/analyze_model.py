@@ -325,8 +325,8 @@ for U, V, Omega in frame_gen:
             Omega_max_2Delta_anom_arr.append(Omega_anom_box_2Delta.max()), Omega_max_2Delta_anom_ind_arr.append(Omega_anom_box_2Delta.argmax())
             Omega_min_2Delta_anom_arr.append(Omega_anom_box_2Delta.min()), Omega_min_2Delta_anom_ind_arr.append(Omega_anom_box_2Delta.argmin())
 
-            U_max_2Delta_anom_arr.append(U_anom_box_4Delta.max()), U_max_4Delta_anom_ind_arr.append(U_anom_box_4Delta.argmax())
-            U_min_2Delta_anom_arr.append(U_anom_box_4Delta.min()), U_min_4Delta_anom_ind_arr.append(U_anom_box_4Delta.argmin())
+            U_max_4Delta_anom_arr.append(U_anom_box_4Delta.max()), U_max_4Delta_anom_ind_arr.append(U_anom_box_4Delta.argmax())
+            U_min_4Delta_anom_arr.append(U_anom_box_4Delta.min()), U_min_4Delta_anom_ind_arr.append(U_anom_box_4Delta.argmin())
             V_max_4Delta_anom_arr.append(V_anom_box_4Delta.max()), V_max_4Delta_anom_ind_arr.append(V_anom_box_4Delta.argmax())
             V_min_4Delta_anom_arr.append(V_anom_box_4Delta.min()), V_min_4Delta_anom_ind_arr.append(V_anom_box_4Delta.argmin())
             Omega_max_4Delta_anom_arr.append(Omega_anom_box_4Delta.max()), Omega_max_4Delta_anom_ind_arr.append(Omega_anom_box_4Delta.argmax())
