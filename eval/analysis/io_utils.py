@@ -48,3 +48,35 @@ def remove_boundaries(arr, n):
         raise ValueError("n is too large for the array dimensions.")
 
     return arr[n:-n, n:-n]
+
+def data2density(data, Ngrid, number_boundary_points=0):
+    """
+    Convert data indices to a 2D density array.
+    
+    Parameters:
+    - data: 1D array of indices
+    - number_boundary_points:  Number of boundary points to remove
+    
+    Returns:
+    - data_density_norm: Normalized density array
+    """
+    Nx, Ny = Ngrid
+    # Assuming the grid size is 64x64, adjust as necessary
+    Nx, Ny = 64-2*number_boundary_points, 64-2*number_boundary_points
+
+    # Create a 2D histogram (density) from the data indices
+    data_density = np.zeros((Nx, Ny), dtype=int)
+
+    # Vectorized version for speed
+    rows, cols = np.unravel_index(data, (Nx, Ny))
+    np.add.at(data_density, (rows, cols), 1)
+
+    # Create coordinate arrays
+    y = np.arange(Nx)
+    x = np.arange(Ny)
+    X, Y = np.meshgrid(x, y, indexing='ij')  # Ensure shape matches data_density
+
+    # Normalize data_density to 1
+    data_density_norm = data_density / np.max(data_density)
+
+    return X, Y, data_density_norm
