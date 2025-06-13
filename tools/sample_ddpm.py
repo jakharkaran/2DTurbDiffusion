@@ -93,8 +93,10 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
     else:
         batch_cond = None
-    print('batch_cond shape: ', batch_cond.shape)
-    batch_cond = batch_cond.float().to(device)
+    
+    if diffusion_config['conditional']:
+        print('batch_cond shape: ', batch_cond.shape)
+        batch_cond = batch_cond.float().to(device)
 
 
     # Loop over the number of batches    

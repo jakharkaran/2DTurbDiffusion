@@ -5,7 +5,7 @@ import os, sys
 import shutil
 import numpy as np
 from tqdm import tqdm
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
 from torch.amp import autocast
 import wandb
@@ -15,7 +15,7 @@ import random
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
-from tools.util import SpectralDifferentiator
+from tools.util import SpectralDifferentiator, grad_norm, grad_max
 
 # Packages to outline architecture of the model
 # from torchviz import make_dot
@@ -63,7 +63,7 @@ def train(args):
 
 
     # Create the noise scheduler
-    scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
+    diffusion_noise_scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
 
@@ -97,7 +97,7 @@ def train(args):
 
     # Watch model gradients with wandb
     if logging_config['log_to_wandb']:
-        wandb.watch(model)
+        wandb.watch(model, log="all", log_freq=logging_config['wandb_table_logging_interval'],)
     
     # Create output directories &   ### Saving config file with the model weights
     if train_config['model_collapse']:
@@ -105,25 +105,7 @@ def train(args):
     else:
         save_dir = os.path.join('results',train_config['task_name'])
 
-    print('*** Saving weights: ', save_dir)
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir, exist_ok=True)
-        shutil.copy(args.config_path, save_dir)
-    
-    # Load checkpoint if found
-    if os.path.exists(os.path.join(save_dir,train_config['ckpt_name'])):
-        print('Loading checkpoint as found one')
-        model.load_state_dict(torch.load(os.path.join(save_dir,
-                                                      train_config['ckpt_name']), map_location=device))
-
-    # Specify training parameters
-    num_epochs = train_config['num_epochs']
-    optimizer = Adam(model.parameters(), lr=train_config['lr'])
-    criterion = torch.nn.MSELoss()
-
-    # print(sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-    # 2D Trubulence System Parameter
+    # 2D Turbulence System Parameter
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
     Lx, Ly = 2 * torch.pi, 2 * torch.pi
     # Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
@@ -143,6 +125,42 @@ def train(args):
         if train_config['divergence_loss_type'] == 'denoise_sample':
             # Precompute timesteps for denoising
             timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+
+    print('*** Saving weights: ', save_dir)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        shutil.copy(args.config_path, save_dir)
+    
+    # Load checkpoint if found
+    if os.path.exists(os.path.join(save_dir,train_config['ckpt_name'])):
+        print('Loading checkpoint as found one')
+        model.load_state_dict(torch.load(os.path.join(save_dir,
+                                                      train_config['ckpt_name']), map_location=device))
+
+    # Specify training parameters
+    num_epochs = train_config['num_epochs']
+
+    if train_config['optimizer'] == 'adam':
+        optimizer = Adam(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']))
+    elif train_config['optimizer'] == 'adamw':
+        optimizer = Adam(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']), fused=True)
+        # optimizer = AdamW(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']), fused=True)
+
+    # Set learning rate scheduluer
+    if train_config["scheduler"] == 'ReduceLROnPlateau':
+        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.2, patience=5, mode='min')
+    elif train_config["scheduler"] == 'CosineAnnealingLR':
+        LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(train_config["num_epochs"]), eta_min=float(train_config['lr_min']))
+    else:
+       LRscheduler = None
+
+    # Warm up epochs if using
+    if train_config['warmup']:
+        warmuplr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=train_config['warmup_start_factor'],
+                                                              total_iters=train_config['warmup_total_iters'])
+
+    criterion = torch.nn.MSELoss()
+
 
     iteration = 0
     noise_cond = None
@@ -193,28 +211,6 @@ def train(args):
             # Sample random noise
             noise = torch.randn_like(im).to(device)
 
-            # fig, axes = plt.subplots(2,3, figsize=(15, 15))
-            # Ut = im[0, 0, :, :].cpu().detach().numpy()
-            # Vt = im[0, 1, :, :].cpu().detach().numpy()
-            # Ut0 = im[0, 2, :, :].cpu().detach().numpy()
-            # Vt0 = im[0, 3, :, :].cpu().detach().numpy()
-
-            # vmaxU = np.max(np.abs(Ut))
-            # vmaxV = np.max(np.abs(Vt))
-
-            # axes[0,0].pcolorfast(Ut0, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
-            # axes[0,1].pcolorfast(Ut, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
-            # axes[0,2].pcolorfast(Ut-Ut0, cmap='bwr', vmin=-vmaxU, vmax=vmaxU)
-            # axes[1,0].pcolorfast(Vt0, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
-            # axes[1,1].pcolorfast(Vt, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
-            # axes[1,2].pcolorfast(Vt-Vt0, cmap='bwr', vmin=-vmaxV, vmax=vmaxV)
-            # for ax in axes.flatten():
-            #     ax.set_aspect('equal')
-            #     ax.axis('off')
-            # plt.tight_layout()
-            # fig.savefig(os.path.join(save_dir, 'a.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
-            # sys.exit()
-
 
             # Add noise to images according to timestep
             # Have dataloader output x_init
@@ -223,7 +219,7 @@ def train(args):
             #     noisy_im = scheduler.add_noise_partial(im, noise, t, n_cond=model_config['im_channels']//2)
 
             # else:
-            noisy_im = scheduler.add_noise(im, noise, t)
+            noisy_im = diffusion_noise_scheduler.add_noise(im, noise, t)
 
             if diffusion_config['conditional']:
                 # Concatenate the conditioning data with the noisy image
@@ -278,21 +274,13 @@ def train(args):
                 else:
                     loss_mse = criterion(model_out, im) 
 
-            if logging_config['log_to_wandb']:
-                log_data = {
-                    "epoch": epoch_idx + 1,
-                    "loss_mse": loss_mse,
-                    "iteration": iteration,
-                    # "noise_cond": torch.mean(torch.abs(noise_cond)),
-                }
-
             ###### Divergence Loss
             if train_config['divergence_loss']:
                 # model.eval()
 
                 # Method # 1: If loss is in noise: Calculate x_0 directly from predicted_noise in a single step
                 if train_config['divergence_loss_type'] == 'direct_sample' and train_config['loss'] == 'noise':
-                    x0_pred = scheduler.sample_x0_from_noise(noisy_im, model_out, t) # Get x0 from xt and noise_pred
+                    x0_pred = diffusion_noise_scheduler.sample_x0_from_noise(noisy_im, model_out, t) # Get x0 from xt and noise_pred
 
                 # Method # 2: If loss is in noise: Calculate x_0 directly via denoising 
                 if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
@@ -304,7 +292,7 @@ def train(args):
 
                     # Add noise to images according to timestep
                     t_div_noise = torch.full((batch_div.shape[0],), train_config['denoise_sample_timestep']-1, dtype=torch.int).to(device)
-                    noisy_im_div = scheduler.add_noise(batch_div, noise_div, t_div_noise)
+                    noisy_im_div = diffusion_noise_scheduler.add_noise(batch_div, noise_div, t_div_noise)
 
                     for i in tqdm(reversed(range( train_config['denoise_sample_timestep']))):
                             
@@ -313,7 +301,7 @@ def train(args):
                         noise_pred_div = model(noisy_im_div, t_tensor)
                         
                         # Use scheduler to get x0 and xt-1
-                        noisy_im_div, _ = scheduler.sample_prev_timestep_from_noise(noisy_im_div, noise_pred_div, t_tensor.squeeze(0))
+                        noisy_im_div, _ = diffusion_noise_scheduler.sample_prev_timestep_from_noise(noisy_im_div, noise_pred_div, t_tensor.squeeze(0))
 
                     x0_pred = noisy_im_div
                     # x0_pred = xt.detach().clone()
@@ -339,8 +327,8 @@ def train(args):
                 #             t_tensor = timesteps[i]
                 #             noise_pred = model(xt, t_tensor)
                             
-                #             # Use scheduler to get x0 and xt-1
-                #             xt, _ = scheduler.sample_prev_timestep_from_noise(xt, noise_pred, t_tensor.squeeze(0))
+                #             # Use diffusion_noise_scheduler to get x0 and xt-1
+                #             xt, _ = diffusion_noise_scheduler.sample_prev_timestep_from_noise(xt, noise_pred, t_tensor.squeeze(0))
 
                 #         x0_pred = xt.detach().clone()
 
@@ -372,31 +360,68 @@ def train(args):
             losses.append(loss.item())
             loss.backward()
             # # Trying with gradient clipping
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25) # Previously 1.0
+            # ——— gradient clipping & norm ———
+            # this returns the total norm before clipping:
+            # grad_norm = torch.nn.utils.clip_grad_norm_(
+            #     model.parameters(),
+            #     max_norm=1.0,
+            # )
+
+            # Calculate maximum gradient value across all parameters
+            batch_grad_norm = grad_norm(model)
+            batch_grad_max = grad_max(model)
+
+
             optimizer.step()
 
+
             if logging_config['log_to_wandb']:
-                log_data["loss"] = loss
-                log_data["best_loss"] = best_loss
-                wandb.log(log_data) # Logging all data to wandb
+                batch_log = {
+                    "iteration": iteration,
+                    # "batch_loss_mse":  loss_mse.item(),
+                    "batch_loss":      loss.item(),
+                    "batch_grad_norm": batch_grad_norm,
+                    "batch_grad_max":  batch_grad_max,
+                }
+                wandb.log(batch_log, step=iteration)
 
-        # Ensuring the best loss is updated in the later epochs
-        # Minimal loss in early epochs may not be the best loss -> outputs unphysical results
-        if epoch_idx == 150:
-            best_loss = loss
+        mean_epoch_loss = np.mean(losses)
 
-        if best_loss > loss:
-            best_loss = loss
+        # Adjust lr rate schedule if using
+        if train_config["warmup"] and (epoch_idx + 1) < train_config["warmup_total_iters"]:
+            warmuplr.step()
+        else:
+            if train_config["scheduler"] == 'ReduceLROnPlateau':
+                LRscheduler.step(mean_epoch_loss)
+            elif train_config["scheduler"] == 'CosineAnnealingLR':
+                LRscheduler.step()
+                if (epoch_idx + 1) >= train_config['num_epochs']:
+                    print("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
+                    break
+
+
+        if best_loss > mean_epoch_loss:
+            best_loss = mean_epoch_loss
             torch.save(model.state_dict(), os.path.join(save_dir,
                                                         train_config['best_ckpt_name']))
             
         print('Finished epoch:{} | Loss (mean/current/best) : {:.2e}/{:.2e}/{:.2e}'.format(
             epoch_idx + 1,
-            np.mean(losses), loss, best_loss
+            mean_epoch_loss, loss, best_loss
         ))
         # Save the model
         torch.save(model.state_dict(), os.path.join(save_dir,
                                                     train_config['ckpt_name']))
+        
+        if logging_config['log_to_wandb']:
+            epoch_log = {
+                "epoch":     epoch_idx + 1,
+                "epoch_loss": mean_epoch_loss,
+                "epoch_loss_best": best_loss,
+                "lr":        optimizer.param_groups[0]['lr'],
+            }
+            # here we use the epoch number as the step
+            wandb.log(epoch_log, step=iteration)
     
     print('Training Completed ...')
 
