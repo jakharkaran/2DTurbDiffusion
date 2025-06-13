@@ -90,7 +90,7 @@ class DownBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                              kernel_size=3, stride=1, padding=1),
                 )
                 for i in range(num_layers)
             ]
@@ -108,7 +108,7 @@ class DownBlock(nn.Module):
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
                     nn.Conv2d(out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                              kernel_size=3, stride=1, padding=1),
                 )
                 for _ in range(num_layers)
             ]
@@ -124,12 +124,12 @@ class DownBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
                 for i in range(num_layers)
             ]
         )
         self.down_sample_conv = nn.Conv2d(out_channels, out_channels,
-                                          kernel_size=4, stride=2, padding=1, padding_mode='circular') if self.down_sample else nn.Identity()
+                                          kernel_size=4, stride=2, padding=1) if self.down_sample else nn.Identity()
     
     def forward(self, x, t_emb):
         out = x
@@ -172,7 +172,7 @@ class MidBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1, padding_mode='circular'),
+                              padding=1),
                 )
                 for i in range(num_layers+1)
             ]
@@ -189,7 +189,7 @@ class MidBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
                 )
                 for _ in range(num_layers+1)
             ]
@@ -206,7 +206,7 @@ class MidBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
                 for i in range(num_layers+1)
             ]
         )
@@ -261,7 +261,7 @@ class UpBlock(nn.Module):
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1, padding_mode='circular'),
+                              padding=1),
                 )
                 for i in range(num_layers)
             ]
@@ -278,7 +278,7 @@ class UpBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
                 )
                 for _ in range(num_layers)
             ]
@@ -299,14 +299,12 @@ class UpBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1)
                 for i in range(num_layers)
             ]
         )
-        # self.up_sample_conv = nn.ConvTranspose2d(in_channels // 2, in_channels // 2,
-        #                                          4, 2, 1) \
-        self.up_sample_conv = PeriodicConvTranspose2d(in_channels // 2, in_channels // 2,
-                                                 kernel_size=4, stride=2, padding=1) \
+        self.up_sample_conv = nn.ConvTranspose2d(in_channels // 2, in_channels // 2,
+                                                 4, 2, 1) \
             if self.up_sample else nn.Identity()
     
     def forward(self, x, out_down, t_emb):
@@ -360,7 +358,7 @@ class Unet(nn.Module):
         )
 
         self.up_sample = list(reversed(self.down_sample))
-        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode='circular')
+        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1))
         
         self.downs = nn.ModuleList([])
         for i in range(len(self.down_channels)-1):
@@ -379,7 +377,7 @@ class Unet(nn.Module):
         
         self.norm_out = nn.GroupNorm(8, 16)
         # self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1, padding_mode='circular')
-        self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1, padding_mode='circular')
+        self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1)
 
     
     def forward(self, x, t):
