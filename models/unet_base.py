@@ -26,6 +26,17 @@ def get_time_embedding(time_steps, temb_dim):
 class PeriodicConvTranspose2d(nn.Module):
     """
       Transposed convolution with periodic (circular) padding and wrap. 
+      This implementaion may be buggy (not truly periodic) - recheck
+      ConvTranspose2d does not support periodic padding directly.
+        This is a workaround to achieve periodic padding.
+      It pads the input tensor with circular padding, applies a transposed convolution,
+      and then crops the output to the desired size.
+        - Conv2DTranspose may introduce checkerboard artifacts
+        - Hence, we use upsample and conv2d instead of ConvTranspose2d
+        Reference:
+        https://distill.pub/2016/deconv-checkerboard/
+      
+      
       """
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super().__init__()
