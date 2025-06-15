@@ -143,12 +143,11 @@ def train(args):
     if train_config['optimizer'] == 'adam':
         optimizer = Adam(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']))
     elif train_config['optimizer'] == 'adamw':
-        optimizer = Adam(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']), fused=True)
-        # optimizer = AdamW(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']), fused=True)
+        optimizer = AdamW(model.parameters(), lr=float(train_config['lr']), weight_decay=float(train_config['weight_decay']), fused=True)
 
     # Set learning rate scheduluer
     if train_config["scheduler"] == 'ReduceLROnPlateau':
-        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.2, patience=5, mode='min')
+        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=10, mode='min')
     elif train_config["scheduler"] == 'CosineAnnealingLR':
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(train_config["num_epochs"]), eta_min=float(train_config['lr_min']))
     else:
