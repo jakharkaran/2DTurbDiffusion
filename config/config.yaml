@@ -11,7 +11,7 @@ dataset_params:
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
   data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
 
-  file_range: [5000, 7500] # range of files to load
+  file_range: [5000, 5100] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
   step_size: 1 # step size for data loading (every nth sample)
   condition_step_size: 1 # step size for conditioning data loading (every nth sample)
@@ -23,7 +23,7 @@ dataset_params:
 diffusion_params:
   conditional: !!bool False # True False
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
-  num_timesteps : 1000
+  num_timesteps : 10
   beta_start : 0.0001
   beta_end : 0.02
 
@@ -41,10 +41,10 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: '2D_64_spectral_dt0.02_noise_2500'
+  task_name: 'test'
   batch_size: 16
-  num_epochs: 200
-  optimizer: 'adam' # 'adam' 'adamw'
+  num_epochs: 400
+  optimizer: 'adamw' # 'adam' 'adamw'
   scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
   lr: 1e-4
   lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
@@ -52,8 +52,9 @@ train_params:
   warmup_start_factor: 0.001 
   warmup_total_iters: 5 # Warm-up learning rate for the first N epochs
   weight_decay: 1e-6 # L2 regularization Loss
+  clip_grad_norm: null # 1.0 # Gradient clipping to avoid exploding gradients, null for no clipping
   loss: 'noise' # sample noise 
-  global_seed: 0
+  global_seed: 1
 
   divergence_loss: !!bool False # True False
   divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)

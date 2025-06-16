@@ -358,13 +358,13 @@ def train(args):
 
             losses.append(loss.item())
             loss.backward()
-            # # Trying with gradient clipping
-            # ——— gradient clipping & norm ———
-            # this returns the total norm before clipping:
-            # grad_norm = torch.nn.utils.clip_grad_norm_(
-            #     model.parameters(),
-            #     max_norm=1.0,
-            # )
+
+            if train_config['clip_grad_norm'] is not None:
+                # ——— gradient clipping & norm ———
+                #  this returns the total norm before clipping:
+                torch.nn.utils.clip_grad_norm_(model.parameters(),
+                    max_norm=float(train_config['clip_grad_norm']),
+                )
 
             # Calculate maximum gradient value across all parameters
             batch_grad_norm = grad_norm(model)
