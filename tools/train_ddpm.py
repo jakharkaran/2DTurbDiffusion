@@ -147,7 +147,7 @@ def train(args):
 
     # Set learning rate scheduluer
     if train_config["scheduler"] == 'ReduceLROnPlateau':
-        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=10, mode='min')
+        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=10, mode='min', min_lr=float(train_config['lr_min']))
     elif train_config["scheduler"] == 'CosineAnnealingLR':
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(train_config["num_epochs"]), eta_min=float(train_config['lr_min']))
     else:
