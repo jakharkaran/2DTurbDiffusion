@@ -1,0 +1,80 @@
+logging_params: # Logging for Weights and biases
+  log_to_screen: !!bool False # not set-up - can be setup for logging to screen
+  diagnostic_logs: !!bool False # not set-up
+  log_to_wandb: !!bool False # True False
+  wandb_table_logging_interval: 10 # not setup
+  wandb_project: 'minst'
+  wandb_group: 'static'
+  wandb_name: 'minst_periodic'
+
+dataset_params:
+  # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
+  data_dir: 'data_mnist/train/images'
+  
+  file_range: [5000, 7500] # range of files to load
+  # total samples used for training = file_range[1] - file_range[0] // step_size
+  step_size: 1 # step size for data loading (every nth sample)
+  condition_step_size: 1 # step size for conditioning data loading (every nth sample)
+  num_prev_conditioning_steps : 1 # 1 2 3 4 # Number of previous time steps to use for conditioning t-1, t-2, t-3, t-4
+  downsample_factor: 1
+  downsample_procedure: 'spectral' # spectral physical
+  normalize: !!bool True
+
+diffusion_params:
+  conditional: !!bool False # True False
+  condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
+  num_timesteps : 1000
+  beta_start : 0.0001
+  beta_end : 0.02
+
+model_params: # U-NET
+  im_channels : 1 # 2 when conditional=False, 4, 6... when conditional=True
+  pred_channels: 1 # =im_channels for conditional=False
+  im_size : 28
+  down_channels : [32, 64, 128, 256]
+  mid_channels : [256, 256, 128]
+  down_sample : [True, True, False]
+  time_emb_dim : 128
+  num_down_layers : 2
+  num_mid_layers : 2
+  num_up_layers : 2
+  num_heads : 4
+
+train_params:
+  task_name: 'test'
+  batch_size: 64
+  num_epochs: 40
+  optimizer: 'adam' # 'adam' 'adamw'
+  scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
+  lr: 1e-4
+  lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
+  warmup: !!bool False # Warmup for LR scheduler (Start with low LR and then increase)
+  warmup_start_factor: 0.001 
+  warmup_total_iters: 5 # Warm-up learning rate for the first N epochs
+  weight_decay: 1e-6 # L2 regularization Loss
+  clip_grad_norm: null # 1.0 # Gradient clipping to avoid exploding gradients, null for no clipping
+  loss: 'noise' # sample noise 
+  global_seed: 1
+
+  divergence_loss: !!bool False # True False
+  divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
+  divergence_loss_weight: 1
+
+  # Following only used for divergence_loss_type: denoise_sample
+  denoise_sample_timestep: 1 # 1 - num_timesteps  
+  denoise_sample_batch_ratio: 0.15 # % of batch used for divergence loss, rest of the samples used for mse loss
+
+  model_collapse: !!bool False # True False # Not implemented for conditional
+  model_collapse_type: 'all_gen' # all_gen last_gen # All generations vs last generation
+  model_collapse_gen: 1 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
+
+  ckpt_name: 'ddpm_ckpt.pth'
+  best_ckpt_name: 'best_ddpm_ckpt.pth'
+
+# For Testing (Post training)
+test_params:
+  batch_size : 64 # Testing data batch size
+  num_test_batch : 10 # number of samples = test_batch * num_test_batch
+  test_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
+  save_image: !!bool True # Saves snapshots of emulated data
+  save_data: !!bool True # Saved emulated data

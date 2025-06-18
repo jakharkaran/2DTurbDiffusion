@@ -15,6 +15,7 @@ import random
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
+from dataset.mnist_dataset import MnistDataset
 from tools.util import SpectralDifferentiator, grad_norm, grad_max
 
 # Packages to outline architecture of the model
@@ -77,9 +78,16 @@ def train(args):
     dl_gen = torch.Generator().manual_seed(GLOBAL_SEED)
 
     # Initiate dataloader
-    dataset = CustomMatDataset(dataset_config, train_config, test_config, conditional=diffusion_config['conditional'])
-    turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
-                                 generator=dl_gen, worker_init_fn=worker_init_fn)
+    if 'mnist' in dataset_config['data_dir'].lower():
+        # MNIST dataset for testing
+        print('** Using MNIST dataset for testing **')
+        mnist = MnistDataset('train', im_path=dataset_config['data_dir'])
+        turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
+    else:
+        # Turbulence dataset
+        dataset = CustomMatDataset(dataset_config, train_config, test_config, conditional=diffusion_config['conditional'])
+        turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
+                                    generator=dl_gen, worker_init_fn=worker_init_fn)
         
     # Instantiate the model
     model = Unet(model_config)
@@ -183,8 +191,13 @@ def train(args):
                 batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)      
             else:
                 batch_cond = None
-                # For unconditional model, batch_data is [B, 1, C, H, W], remove T dimension
-                batch_im = batch_data[:, 0, :, :, :] # [B, C, H, W]
+
+                if 'mnist' in dataset_config['data_dir'].lower():
+                    # For MNIST dataset, batch_data is [B, C, H, W], add T dimension
+                    batch_im = batch_data
+                else:
+                    # For unconditional model, batch_data is [B, 1, C, H, W], remove T dimension
+                    batch_im = batch_data[:, 0, :, :, :] # [B, C, H, W]
 
             if train_config['divergence_loss'] and train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
                 # Calculate split sizes for the two branches
