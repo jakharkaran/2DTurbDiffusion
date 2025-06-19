@@ -30,8 +30,8 @@ diffusion_params:
 
 model_params: # U-NET
   padding_mode: 'circular' # Padding of conv2d layers. 'zero': standard non-periodic UNET; 'circular': periodic UNET
-  im_channels : 2 # 2 when conditional=False, 4, 6... when conditional=True
-  pred_channels: 2 # =im_channels for conditional=False; = im_channels * (1 + num_prev_conditioning_steps) for conditional=True
+  im_channels : 2 # 2 when conditional=False, 4, 6... when conditional=True; = pred_channels * (1 + num_prev_conditioning_steps) for conditional=True
+  pred_channels: 2 # =im_channels for conditional=False; 
   im_size : 64
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
