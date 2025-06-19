@@ -42,7 +42,6 @@ def train(args):
 
 
     ########################
-
     diffusion_config = config['diffusion_params']
     dataset_config = config['dataset_params']
     model_config = config['model_params']

@@ -32,7 +32,10 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     np.random.seed(GLOBAL_SEED)
     torch.manual_seed(GLOBAL_SEED)
 
-    if dataset_config['normalize']:
+    if 'mnist' in dataset_config['data_dir'].lower():
+        # mnist dataset is not normalized
+        pass
+    elif dataset_config['normalize']:
         mean_std_data = np.load(dataset_config['data_dir'] + 'mean_std.npz')
         mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
         std = np.asarray([mean_std_data['U_std'], mean_std_data['V_std']])
@@ -126,7 +129,9 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             nrows = int(np.floor(np.sqrt(test_config['batch_size'])))
 
             figU, axesU = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
-            figV, axesV = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
+
+            if not 'mnist' in dataset_config['data_dir'].lower():
+                figV, axesV = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
 
         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
@@ -162,7 +167,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                     if i == 0 :
 
                         # Save x0
-                        # ims = torch.clamp(xt, -1., 1.).detach().cpu()
+                        ims = torch.clamp(xt, -1., 1.).detach().cpu()
 
 
                         # ims = model_in.detach().cpu()
@@ -172,44 +177,54 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
                         ims = xt.detach().cpu()
 
+
                         U_arr = ims[:,0,:,:].numpy()
-                        V_arr = ims[:,1,:,:].numpy()
                         vmax_U = np.max(np.abs(U_arr))
-                        vmax_V = np.max(np.abs(V_arr))
+                        if not ('mnist' in dataset_config['data_dir'].lower()):
+                            V_arr = ims[:,1,:,:].numpy()
+                            vmax_V = np.max(np.abs(V_arr))
                     
                         # Loop over the grid
                         if nrows == 1:
                             # Handle the case where there is only a single row of axes
-                                plotU = axesU.pcolorfast(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                                if 'mnist' in dataset_config['data_dir'].lower():
+                                    plotU = axesU.imshow(np.clip(U_arr[0, :, :], 0, 1), cmap='gray', vmin=0, vmax=1)
+                                else:
+                                    plotU = axesU.pcolorfast(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
                                 # plotU = axesU.contourf(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
                                 axesU.axis('off')
                         else:
                             for ax_count, ax in enumerate(axesU.flatten()):
                                 # Plot each matrix using the 'bwr' colormap
-                                plotU = ax.pcolorfast(U_arr[ax_count, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
+                                if 'mnist' in dataset_config['data_dir'].lower():
+                                    plotU = ax.imshow(np.clip(U_arr[ax_count, :, :], 0, 1), cmap='gray', vmin=0, vmax=1)
+                                else:
+                                    plotU = ax.pcolorfast(U_arr[ax_count, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
                                 ax.axis('off')
                             # Adjust spacing between subplots to avoid overlap
                             figU.subplots_adjust(wspace=0.1, hspace=0.1)
 
                         figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                        del plotU
 
-                        # Loop over the grid
-                        if nrows == 1:
-                            # Handle the case where there is only a single row of axes
-                                plotV = axesV.pcolorfast(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                # plotV = axesV.contourf(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                axesV.axis('off')
-                        else:
-                            for ax_count, ax in enumerate(axesV.flat):
-                                # Plot each matrix using the 'bwr' colormap
-                                plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                ax.axis('off')
-                            # Adjust spacing between subplots to avoid overlap
-                            figV.subplots_adjust(wspace=0.1, hspace=0.1)
+                        if not 'mnist' in dataset_config['data_dir'].lower():
 
-                        figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                            # Loop over the grid
+                            if nrows == 1:
+                                # Handle the case where there is only a single row of axes
+                                    plotV = axesV.pcolorfast(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                    # plotV = axesV.contourf(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                    axesV.axis('off')
+                            else:
+                                for ax_count, ax in enumerate(axesV.flat):
+                                    # Plot each matrix using the 'bwr' colormap
+                                    plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
+                                    ax.axis('off')
+                                # Adjust spacing between subplots to avoid overlap
+                                figV.subplots_adjust(wspace=0.1, hspace=0.1)
 
-                        del plotU, plotV
+                            figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+                            del plotV
 
         if diffusion_config['conditional']:
             # Shift batch_cond to remove the last time step and add the new one at the beginning
@@ -230,7 +245,10 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             xt_final = xt.detach()
 
         if test_config['save_data']:
-            if dataset_config['normalize']:
+            
+            if 'mnist' in dataset_config['data_dir'].lower():
+                pass
+            elif dataset_config['normalize']:
                 xt_final.mul_(std_tensor).add_(mean_tensor)
 
             xt_cpu = xt_final.cpu()

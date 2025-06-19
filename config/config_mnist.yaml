@@ -28,6 +28,7 @@ diffusion_params:
   beta_end : 0.02
 
 model_params: # U-NET
+  padding_mode: 'circular' # Padding of conv2d layers. 'zero': standard non-periodic UNET; 'circular': periodic UNET
   im_channels : 1 # 2 when conditional=False, 4, 6... when conditional=True
   pred_channels: 1 # =im_channels for conditional=False
   im_size : 28
@@ -41,9 +42,9 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'test'
+  task_name: 'minst_periodic'
   batch_size: 64
-  num_epochs: 40
+  num_epochs: 100
   optimizer: 'adam' # 'adam' 'adamw'
   scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
   lr: 1e-4

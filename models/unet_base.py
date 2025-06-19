@@ -91,17 +91,18 @@ class DownBlock(nn.Module):
     3. Downsample using 2x2 average pooling
     """
     def __init__(self, in_channels, out_channels, t_emb_dim,
-                 down_sample=True, num_heads=4, num_layers=1):
+                 down_sample=True, num_heads=4, num_layers=1, padding_mode='zero'):
         super().__init__()
         self.num_layers = num_layers
         self.down_sample = down_sample
+        self.padding_mode = padding_mode
         self.resnet_conv_first = nn.ModuleList(
             [
                 nn.Sequential(
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                              kernel_size=3, stride=1, padding=1, padding_mode=self.padding_mode),
                 )
                 for i in range(num_layers)
             ]
@@ -119,7 +120,7 @@ class DownBlock(nn.Module):
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
                     nn.Conv2d(out_channels, out_channels,
-                              kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                              kernel_size=3, stride=1, padding=1, padding_mode=self.padding_mode),
                 )
                 for _ in range(num_layers)
             ]
@@ -135,12 +136,12 @@ class DownBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode=self.padding_mode)
                 for i in range(num_layers)
             ]
         )
         self.down_sample_conv = nn.Conv2d(out_channels, out_channels,
-                                          kernel_size=4, stride=2, padding=1, padding_mode='circular') if self.down_sample else nn.Identity()
+                                          kernel_size=4, stride=2, padding=1, padding_mode=self.padding_mode) if self.down_sample else nn.Identity()
     
     def forward(self, x, t_emb):
         out = x
@@ -174,16 +175,17 @@ class MidBlock(nn.Module):
     2. Attention block
     3. Resnet block with time embedding
     """
-    def __init__(self, in_channels, out_channels, t_emb_dim, num_heads=4, num_layers=1):
+    def __init__(self, in_channels, out_channels, t_emb_dim, num_heads=4, num_layers=1, padding_mode='zero'):
         super().__init__()
         self.num_layers = num_layers
+        self.padding_mode = padding_mode
         self.resnet_conv_first = nn.ModuleList(
             [
                 nn.Sequential(
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1, padding_mode='circular'),
+                              padding=1, padding_mode=self.padding_mode),
                 )
                 for i in range(num_layers+1)
             ]
@@ -200,7 +202,7 @@ class MidBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode=self.padding_mode),
                 )
                 for _ in range(num_layers+1)
             ]
@@ -217,7 +219,7 @@ class MidBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode=self.padding_mode)
                 for i in range(num_layers+1)
             ]
         )
@@ -262,17 +264,18 @@ class UpBlock(nn.Module):
     2. Resnet block with time embedding
     3. Attention Block
     """
-    def __init__(self, in_channels, out_channels, t_emb_dim, up_sample=True, num_heads=4, num_layers=1):
+    def __init__(self, in_channels, out_channels, t_emb_dim, up_sample=True, num_heads=4, num_layers=1, padding_mode='zero'):
         super().__init__()
         self.num_layers = num_layers
         self.up_sample = up_sample
+        self.padding_mode = padding_mode
         self.resnet_conv_first = nn.ModuleList(
             [
                 nn.Sequential(
                     nn.GroupNorm(8, in_channels if i == 0 else out_channels),
                     nn.SiLU(),
                     nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=3, stride=1,
-                              padding=1, padding_mode='circular'),
+                              padding=1, padding_mode=self.padding_mode),
                 )
                 for i in range(num_layers)
             ]
@@ -289,7 +292,7 @@ class UpBlock(nn.Module):
                 nn.Sequential(
                     nn.GroupNorm(8, out_channels),
                     nn.SiLU(),
-                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode='circular'),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, padding_mode=self.padding_mode),
                 )
                 for _ in range(num_layers)
             ]
@@ -310,7 +313,7 @@ class UpBlock(nn.Module):
         )
         self.residual_input_conv = nn.ModuleList(
             [
-                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode='circular')
+                nn.Conv2d(in_channels if i == 0 else out_channels, out_channels, kernel_size=1, padding_mode=self.padding_mode)
                 for i in range(num_layers)
             ]
         )
@@ -321,7 +324,7 @@ class UpBlock(nn.Module):
         self.up_sample_conv = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='nearest'),                 # or 'bilinear'
             nn.Conv2d(in_channels // 2, in_channels // 2,
-                    kernel_size=3, padding=1, padding_mode='circular')) \
+                    kernel_size=3, padding=1, padding_mode=self.padding_mode)) \
             if self.up_sample else nn.Identity()
     
     def forward(self, x, out_down, t_emb):
@@ -362,6 +365,7 @@ class Unet(nn.Module):
         self.num_down_layers = model_config['num_down_layers']
         self.num_mid_layers = model_config['num_mid_layers']
         self.num_up_layers = model_config['num_up_layers']
+        self.padding_mode = model_config['padding_mode']
         
         assert self.mid_channels[0] == self.down_channels[-1]
         assert self.mid_channels[-1] == self.down_channels[-2]
@@ -375,26 +379,26 @@ class Unet(nn.Module):
         )
 
         self.up_sample = list(reversed(self.down_sample))
-        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode='circular')
+        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode=self.padding_mode)
         
         self.downs = nn.ModuleList([])
         for i in range(len(self.down_channels)-1):
             self.downs.append(DownBlock(self.down_channels[i], self.down_channels[i+1], self.t_emb_dim,
-                                        down_sample=self.down_sample[i], num_layers=self.num_down_layers))
+                                        down_sample=self.down_sample[i], num_layers=self.num_down_layers, padding_mode=self.padding_mode))
         
         self.mids = nn.ModuleList([])
         for i in range(len(self.mid_channels)-1):
             self.mids.append(MidBlock(self.mid_channels[i], self.mid_channels[i+1], self.t_emb_dim,
-                                      num_layers=self.num_mid_layers))
+                                      num_layers=self.num_mid_layers, padding_mode=self.padding_mode))
         
         self.ups = nn.ModuleList([])
         for i in reversed(range(len(self.down_channels)-1)):
             self.ups.append(UpBlock(self.down_channels[i] * 2, self.down_channels[i-1] if i != 0 else 16,
-                                    self.t_emb_dim, up_sample=self.down_sample[i], num_layers=self.num_up_layers))
+                                    self.t_emb_dim, up_sample=self.down_sample[i], num_layers=self.num_up_layers, padding_mode=self.padding_mode))
         
         self.norm_out = nn.GroupNorm(8, 16)
-        # self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1, padding_mode='circular')
-        self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1, padding_mode='circular')
+        # self.conv_out = nn.Conv2d(16, im_channels, kernel_size=3, padding=1, padding_mode=self.padding_mode)
+        self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1, padding_mode=self.padding_mode)
 
     
     def forward(self, x, t):
