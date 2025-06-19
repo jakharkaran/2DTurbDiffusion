@@ -17,3 +17,11 @@ source /work/nvme/bdiu/jakharkaran/miniconda3/bin/activate /work/nvme/bdiu/jakha
 
 # Launch GPU code
 python -m tools.sample_ddpm --config config/config_delta.yaml --run_num "$@"
+
+# cd ..
+# Launch GPU code
+# python -m tools.train_ddpm --config config/UDM_s1_Oa_lrC1e4_wd1e6_bilinear.yaml
+# python -m tools.sample_ddpm --config config/UDM_s1_Oa_lrC1e4_wd1e6_bilinear.yaml
+
+# python -m tools.train_ddpm --config "$@"
+# python -m tools.sample_ddpm --config "$@"
