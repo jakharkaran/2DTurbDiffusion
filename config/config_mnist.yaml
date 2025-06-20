@@ -1,7 +1,7 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool False # not set-up - can be setup for logging to screen
   diagnostic_logs: !!bool False # not set-up
-  log_to_wandb: !!bool False # True False
+  log_to_wandb: !!bool True # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: 'minst'
   wandb_group: 'static'
@@ -22,14 +22,15 @@ dataset_params:
 
 diffusion_params:
   conditional: !!bool False # True False
+  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to im_channels
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
   beta_end : 0.02
 
 model_params: # U-NET
-  padding_mode: 'circular' # Padding of conv2d layers. 'zero': standard non-periodic UNET; 'circular': periodic UNET
-  im_channels : 1 # 2 when conditional=False, 4, 6... when conditional=True
+  padding_mode: 'circular' # Padding of conv2d layers. 'zeros': standard non-periodic UNET; 'circular': periodic UNET
+  im_channels : 1 # 2 when conditional=False, 4, 6... when conditional=True; = pred_channels * (1 + num_prev_conditioning_steps) for conditional=True; + 2 (if coord_conv)
   pred_channels: 1 # =im_channels for conditional=False
   im_size : 28
   down_channels : [32, 64, 128, 256]

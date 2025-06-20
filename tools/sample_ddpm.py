@@ -14,6 +14,7 @@ import random
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
+from tools.util import generate_grid
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -67,6 +68,11 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     if largest_file_number >= (test_config['num_test_batch']-1):
         print(f"All {test_config['num_test_batch']} batches already exist. Exiting.")
         sys.exit(0)
+
+    nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
+    if diffusion_config['coord_conv']:
+    # Generate coordinate grids for the model input
+        coord_grids = generate_grid(nx, ny, device=device) # [1, 2, nx, ny]
 
     if diffusion_config['conditional']:
      # ----- NEW: seed with real frame t0 (selected by test_file_start_idx) -----
@@ -150,6 +156,10 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
             else:
                 model_in = xt
+
+            if diffusion_config['coord_conv']:
+                coord_grids_batch = coord_grids.repeat(model_in.shape[0], 1, 1, 1)  # Repeat for batch size
+                model_in = torch.cat((model_in, coord_grids_batch), dim=1)  # Concatenate the coordinate grids
                 
             with autocast('cuda'):
                 # Get prediction of noise

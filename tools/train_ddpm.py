@@ -16,7 +16,7 @@ from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
 from dataset.mnist_dataset import MnistDataset
-from tools.util import SpectralDifferentiator, grad_norm, grad_max
+from tools.util import SpectralDifferentiator, grad_norm, grad_max, generate_grid
 
 # Packages to outline architecture of the model
 # from torchviz import make_dot
@@ -116,6 +116,12 @@ def train(args):
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
     Lx, Ly = 2 * torch.pi, 2 * torch.pi
     # Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
+
+    if diffusion_config['coord_conv']:
+    # Generate coordinate grids for the model input
+        coord_grids = generate_grid(nx, ny, device=device) # [1, 2, nx, ny]
+        # print('Coordinate grids shape: ', coord_grids.shape)  
+
 
     # --- Instantiate the Differentiator ---
     diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device)
@@ -238,6 +244,10 @@ def train(args):
                 model_in = torch.cat((noisy_im, batch_cond), dim=1)
             else:
                 model_in = noisy_im
+
+            if diffusion_config['coord_conv']:
+                coord_grids_batch = coord_grids.repeat(model_in.shape[0], 1, 1, 1)  # Repeat for batch size
+                model_in = torch.cat((model_in, coord_grids_batch), dim=1)  # Concatenate the coordinate grids
 
             model_out = model(model_in, t)
 

@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 def grad_norm(model):
     total_norm = 0
@@ -18,6 +19,47 @@ def grad_max(model):
         if max_grad < param_max.item():
             max_grad = param_max.item()
     return param_max
+
+def generate_grid(nx, ny, device='cpu'):
+    """
+    Generate a 2D coordinate grid normalized to [-1, 1] x [-1, 1].
+    
+    Parameters:
+    -----------
+    nx : int
+        Number of grid points in the x-direction.
+    ny : int
+        Number of grid points in the y-direction.
+    device : str, optional
+        Torch device ('cpu' or 'cuda'). Default is 'cpu'.
+    
+    Returns:
+    --------
+    torch.Tensor
+        Coordinate grids of shape [1, 2, nx, ny] where the first channel is X 
+        and the second channel is Y coordinates.
+    """
+    
+    # Domain size normalized to 1
+    Lx_grid, Ly_grid = 1.0, 1.0
+
+    # Calculate the size of the grid spacing
+    dx = Lx_grid / nx
+    dy = Ly_grid / ny
+
+    # Create an array of x-coordinates, ranging from 0 to (Lx_grid - dx)
+    x = np.linspace(0, Lx_grid - dx, num=nx) * 2 - 1  # Scale to range [-1, 1]
+    y = np.linspace(0, Ly_grid - dy, num=ny) * 2 - 1  # Scale to range [-1, 1]
+
+    # Create 2D arrays of the x and y-coordinates using a meshgrid.
+    X, Y = np.meshgrid(x, y, indexing='ij')
+
+    X = torch.from_numpy(X).float().to(device).unsqueeze(0).unsqueeze(0)  # [1, 1, nx, ny]
+    Y = torch.from_numpy(Y).float().to(device).unsqueeze(0).unsqueeze(0)  # [1, 1, nx, ny]
+    coord_grids = torch.cat((X, Y), dim=1) # [1, 2, nx, ny]
+    
+    return coord_grids
+
 
 class SpectralDifferentiator:
     def __init__(self, nx, ny, Lx=2*torch.pi, Ly=2*torch.pi, device='cpu', dtype=torch.float32):

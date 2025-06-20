@@ -23,14 +23,15 @@ dataset_params:
 
 diffusion_params:
   conditional: !!bool False # True False
+  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to im_channels
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
   beta_end : 0.02
 
 model_params: # U-NET
-  padding_mode: 'circular' # Padding of conv2d layers. 'zero': standard non-periodic UNET; 'circular': periodic UNET
-  im_channels : 2 # 2 when conditional=False, 4, 6... when conditional=True; = pred_channels * (1 + num_prev_conditioning_steps) for conditional=True
+  padding_mode: 'circular' # Padding of conv2d layers. 'zeros': standard non-periodic UNET; 'circular': periodic UNET (maybe need coord_conv=True for UDM )
+  im_channels : 2 # 2 when conditional=False, 4, 6... when conditional=True; = pred_channels * (1 + num_prev_conditioning_steps) for conditional=True; + 2 (if coord_conv)
   pred_channels: 2 # =im_channels for conditional=False; 
   im_size : 64
   down_channels : [32, 64, 128, 256]
@@ -41,13 +42,13 @@ model_params: # U-NET
   num_mid_layers : 2
   num_up_layers : 2
   num_heads : 4
-# Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs.
+# Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
 
 train_params:
   task_name: 'test'
   batch_size: 16
   num_epochs: 400
-  optimizer: 'adam' # 'adam' 'adamw'
+  optimizer: 'adamw' # 'adam' 'adamw'
   scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
   lr: 1e-4
   lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
