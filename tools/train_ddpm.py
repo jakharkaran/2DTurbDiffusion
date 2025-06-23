@@ -47,7 +47,7 @@ def train(args):
     model_config = config['model_params']
     train_config = config['train_params']
     logging_config = config['logging_params']
-    test_config = config['test_params']
+    sample_config = config['sample_params']
 
     GLOBAL_SEED = train_config['global_seed']
     # -------- main-process seeding -------------------------------------------
@@ -84,7 +84,7 @@ def train(args):
         turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
     else:
         # Turbulence dataset
-        dataset = CustomMatDataset(dataset_config, train_config, test_config, conditional=diffusion_config['conditional'])
+        dataset = CustomMatDataset(dataset_config, train_config, sample_config, conditional=diffusion_config['conditional'])
         turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
                                     generator=dl_gen, worker_init_fn=worker_init_fn)
         
@@ -336,7 +336,7 @@ def train(args):
                 #     with torch.inference_mode():
 
                 #         # Compute Divergence
-                #         xt = torch.randn((test_config['batch_size'],
+                #         xt = torch.randn((sample_config['batch_size'],
                 #         model_config['im_channels'],
                 #         model_config['im_size'],
                 #         model_config['im_size'])).to(device)

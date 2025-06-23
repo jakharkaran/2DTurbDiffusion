@@ -21,7 +21,7 @@ print(device)
 if torch.cuda.is_available():
     print("Number of GPUs available:", torch.cuda.device_count())
 
-def sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config, run_num):
+def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num):
     r"""
     Sample stepwise by going backward one timestep at a time.
     We save the x0 predictions
@@ -48,7 +48,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
     timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
     # Create directory for saving generated data if required
-    if test_config['save_data']:
+    if sample_config['save_data']:
         os.makedirs(os.path.join(train_config['save_dir'], 'data', run_num), exist_ok=True)
 
         # List all .npy files in the directory
@@ -65,8 +65,8 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
             print("No .npy files found in the directory.")    
 
     # Check if all batches already exist
-    if largest_file_number >= (test_config['num_test_batch']-1):
-        print(f"All {test_config['num_test_batch']} batches already exist. Exiting.")
+    if largest_file_number >= (sample_config['num_sample_batch']-1):
+        print(f"All {sample_config['num_sample_batch']} batches already exist. Exiting.")
         sys.exit(0)
 
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
@@ -75,7 +75,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         coord_grids = generate_grid(nx, ny, device=device) # [1, 2, nx, ny]
 
     if diffusion_config['conditional']:
-     # ----- NEW: seed with real frame t0 (selected by test_file_start_idx) -----
+     # ----- NEW: seed with real frame t0 (selected by sample_file_start_idx) -----
 
         if npy_files:
             # If files exist, load the second-last one (avoiding errorsif last saved file is corrupted)
@@ -94,7 +94,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
         else:
             # Initiate dataloader
-            seed_dataset = CustomMatDataset(dataset_config, train_config, test_config, training=False, conditional=True)
+            seed_dataset = CustomMatDataset(dataset_config, train_config, sample_config, training=False, conditional=True)
             t0_tensor = seed_dataset[0] # [T, C, H, W]
 
             T, C, H, W = t0_tensor.shape
@@ -109,9 +109,9 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
 
 
     # Loop over the number of batches    
-    for batch_count in range(largest_file_number+1,test_config['num_test_batch']):
+    for batch_count in range(largest_file_number+1,sample_config['num_sample_batch']):
 
-        xt = torch.randn((test_config['batch_size'],
+        xt = torch.randn((sample_config['sample_batch_size'],
                         model_config['pred_channels'],
                         model_config['im_size'],
                         model_config['im_size'])).float().to(device)
@@ -127,12 +127,12 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         #     print('model_in shape: ', model_in.shape)
 
         # Create directories and figure objects for saving images if needed
-        if test_config['save_image'] or batch_count < 5:
+        if sample_config['save_image'] or batch_count < 5:
 
             os.makedirs(os.path.join(train_config['save_dir'], 'samples'), exist_ok=True)
             os.makedirs(os.path.join(train_config['save_dir'], 'samples', run_num), exist_ok=True)
 
-            nrows = int(np.floor(np.sqrt(test_config['batch_size'])))
+            nrows = int(np.floor(np.sqrt(sample_config['sample_batch_size'])))
 
             figU, axesU = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
 
@@ -171,7 +171,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
                 # else:
                 xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
                 
-                if test_config['save_image'] or batch_count < 5:
+                if sample_config['save_image'] or batch_count < 5:
 
                     # if i % 250 == 0 :
                     if i == 0 :
@@ -254,7 +254,7 @@ def sample_turb(model, scheduler, train_config, test_config, model_config, diffu
         else:
             xt_final = xt.detach()
 
-        if test_config['save_data']:
+        if sample_config['save_data']:
             
             if 'mnist' in dataset_config['data_dir'].lower():
                 pass
@@ -280,7 +280,7 @@ def infer(args):
     diffusion_config = config['diffusion_params']
     model_config = config['model_params']
     train_config = config['train_params']
-    test_config = config['test_params']
+    sample_config = config['sample_params']
     run_num = args.run_num
     
     # Create model and load checkpoint
@@ -315,7 +315,7 @@ def infer(args):
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
     with torch.no_grad():
-        sample_turb(model, scheduler, train_config, test_config, model_config, diffusion_config, dataset_config, run_num)
+        sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num)
 
 
 if __name__ == '__main__':

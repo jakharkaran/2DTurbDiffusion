@@ -73,10 +73,10 @@ train_params:
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
-# For Testing (Post training)
-test_params:
-  batch_size : 64 # Testing data batch size
-  num_test_batch : 10 # number of samples = test_batch * num_test_batch
-  test_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
+# For Sampling (Inference)
+sample_params:
+  sample_batch_size : 64 # Inference data batch size
+  num_sample_batch : 10 # number of samples = sample_batch_size * num_sample_batch
+  sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
   save_image: !!bool True # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data
