@@ -15,6 +15,7 @@ from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
 from tools.util import generate_grid
+from eval.analysis.plots import save_image
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -119,28 +120,6 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                         model_config['im_size'],
                         model_config['im_size'])).float().to(device)
         
-        
-        # if diffusion_config['conditional']:
-        #     # model_in = torch.cat((xt, batch_cond), dim=1) # [B, C, H, W]
-        #     # if batch_count == 0:
-        #     #     xt_prev = t0_tensor[:model_config['im_channels']-2, :, :].to(device)
-        #     # else:
-        #     #     xt_prev = xt_final
-
-        #     print('model_in shape: ', model_in.shape)
-
-        # Create directories and figure objects for saving images if needed
-        if sample_config['save_image'] or batch_count < 5:
-
-            os.makedirs(os.path.join(train_config['save_dir'], 'samples'), exist_ok=True)
-            os.makedirs(os.path.join(train_config['save_dir'], 'samples', run_num), exist_ok=True)
-
-            nrows = int(np.floor(np.sqrt(sample_config['sample_batch_size'])))
-
-            figU, axesU = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
-
-            if not 'mnist' in dataset_config['data_dir'].lower():
-                figV, axesV = plt.subplots(nrows=nrows, ncols=nrows, figsize=(15, 15))
 
         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
@@ -174,70 +153,8 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                 # else:
                 xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
                 
-                if sample_config['save_image'] or batch_count < 5:
-
-                    # if i % 250 == 0 :
-                    if i == 0 :
-
-                        # Save x0
-                        ims = torch.clamp(xt, -1., 1.).detach().cpu()
-
-
-                        # ims = model_in.detach().cpu()
-
-                        # U_arr = ims[:,0,:,:].numpy()
-                        # V_arr = ims[:,2,:,:].numpy()
-
-                        ims = xt.detach().cpu()
-
-
-                        U_arr = ims[:,0,:,:].numpy()
-                        vmax_U = np.max(np.abs(U_arr))
-                        if not ('mnist' in dataset_config['data_dir'].lower()):
-                            V_arr = ims[:,1,:,:].numpy()
-                            vmax_V = np.max(np.abs(V_arr))
-                    
-                        # Loop over the grid
-                        if nrows == 1:
-                            # Handle the case where there is only a single row of axes
-                                if 'mnist' in dataset_config['data_dir'].lower():
-                                    plotU = axesU.imshow(np.clip(U_arr[0, :, :], 0, 1), cmap='gray', vmin=0, vmax=1)
-                                else:
-                                    plotU = axesU.pcolorfast(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
-                                # plotU = axesU.contourf(U_arr[0, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
-                                axesU.axis('off')
-                        else:
-                            for ax_count, ax in enumerate(axesU.flatten()):
-                                # Plot each matrix using the 'bwr' colormap
-                                if 'mnist' in dataset_config['data_dir'].lower():
-                                    plotU = ax.imshow(np.clip(U_arr[ax_count, :, :], 0, 1), cmap='gray', vmin=0, vmax=1)
-                                else:
-                                    plotU = ax.pcolorfast(U_arr[ax_count, :, :], cmap='bwr', vmin=-vmax_U, vmax=vmax_U)
-                                ax.axis('off')
-                            # Adjust spacing between subplots to avoid overlap
-                            figU.subplots_adjust(wspace=0.1, hspace=0.1)
-
-                        figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
-                        del plotU
-
-                        if not 'mnist' in dataset_config['data_dir'].lower():
-
-                            # Loop over the grid
-                            if nrows == 1:
-                                # Handle the case where there is only a single row of axes
-                                    plotV = axesV.pcolorfast(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                    # plotV = axesV.contourf(V_arr[0, :, :], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                    axesV.axis('off')
-                            else:
-                                for ax_count, ax in enumerate(axesV.flat):
-                                    # Plot each matrix using the 'bwr' colormap
-                                    plotV = ax.pcolorfast(V_arr[ax_count,:,:], cmap='bwr', vmin=-vmax_V, vmax=vmax_V)
-                                    ax.axis('off')
-                                # Adjust spacing between subplots to avoid overlap
-                                figV.subplots_adjust(wspace=0.1, hspace=0.1)
-
-                            figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{i}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
-                            del plotV
+        if sample_config['save_image'] or batch_count < 5:
+            save_image(xt, i, train_config, sample_config, dataset_config, run_num, batch_count)
 
         if diffusion_config['conditional']:
             # Shift batch_cond to remove the last time step and add the new one at the beginning
