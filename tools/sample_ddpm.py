@@ -27,11 +27,14 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
     We save the x0 predictions
     """
 
-    GLOBAL_SEED = train_config['global_seed']
+    GLOBAL_ = sample_config['global_seed']
+    print(f"Global seed set to: {GLOBAL_}")
     # -------- main-process seeding -------------------------------------------
-    random.seed(GLOBAL_SEED)
-    np.random.seed(GLOBAL_SEED)
-    torch.manual_seed(GLOBAL_SEED)
+    if GLOBAL_ is not None:
+        print(f"Setting global seed to {GLOBAL_}")
+        random.seed(GLOBAL_)
+        np.random.seed(GLOBAL_)
+        torch.manual_seed(GLOBAL_)
 
     if 'mnist' in dataset_config['data_dir'].lower():
         # mnist dataset is not normalized

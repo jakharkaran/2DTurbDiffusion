@@ -56,7 +56,7 @@ train_params:
   weight_decay: 1e-6 # L2 regularization Loss
   clip_grad_norm: null # 1.0 # Gradient clipping to avoid exploding gradients, null for no clipping
   loss: 'noise' # sample noise 
-  global_seed: 1
+  global_seed: 1 # Global seed for training reproducibility
 
   divergence_loss: !!bool False # True False
   divergence_loss_type: 'denoise_sample' # denoise_sample (need loss = noise), direct_sample (loss == noise or sample)
@@ -75,6 +75,7 @@ train_params:
 
 # For Sampling (Inference)
 sample_params:
+  global_seed: null # Global seed for reproducibility; If null, it will be random seed - It should be null to produce different samples for each ensemble
   sample_batch_size : 64 # Inference data batch size
   num_sample_batch : 10 # number of samples = sample_batch_size * num_sample_batch
   sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
