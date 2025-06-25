@@ -10,7 +10,7 @@ from py2d.convert import Omega2Psi, Psi2UV, UV2Omega
 from py2d.filter import filter2D
 
 class CustomMatDataset(Dataset):
-    def __init__(self, dataset_config, train_config, test_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
+    def __init__(self, dataset_config, train_config, sample_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
         """
         Args:
             data_dir (str): Directory with all the .mat files.
@@ -38,9 +38,9 @@ class CustomMatDataset(Dataset):
         if training:
             self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
         else:
-            # For testing cnditional diffusion model
-            self.file_test_start_idx = test_config['test_file_start_idx']
-            self.file_numbers = range(self.file_test_start_idx, (self.file_test_start_idx + self.step_size*self.condition_step_size*self.num_prev_conditioning_steps) + 1)
+            # For sampling cnditional diffusion model
+            self.file_sample_start_idx = sample_config['sample_file_start_idx']
+            self.file_numbers = range(self.file_sample_start_idx, (self.file_sample_start_idx + self.step_size*self.condition_step_size*self.num_prev_conditioning_steps) + 1)
 
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
@@ -61,7 +61,7 @@ class CustomMatDataset(Dataset):
             self.model_collapse_gen = train_config['model_collapse_gen']
             self.model_collapse_type = train_config['model_collapse_type']
 
-            self.file_batch_size = test_config['batch_size']
+            self.file_batch_size = sample_config['batch_size']
             filenum1 = 0
             filenum2 = len(self.file_list_data)//self.file_batch_size - 1
             self.file_numbers = range(filenum1, filenum2 + 1)
