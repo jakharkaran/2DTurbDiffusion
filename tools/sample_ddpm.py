@@ -13,12 +13,13 @@ import random
 
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
+from scheduler.dpm_solver import NoiseScheduleVP, model_wrapper, DPM_Solver
 from dataset.dataloader import CustomMatDataset
-from tools.util import generate_grid
 from eval.analysis.plots import save_image
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device)
+print("Using device:", device)
+
 if torch.cuda.is_available():
     print("Number of GPUs available:", torch.cuda.device_count())
 
@@ -73,11 +74,6 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         print(f"All {sample_config['num_sample_batch']} batches already exist. Exiting.")
         sys.exit(0)
 
-    nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
-    if diffusion_config['coord_conv']:
-    # Generate coordinate grids for the model input
-        coord_grids = generate_grid(nx, ny, device=device) # [1, 2, nx, ny]
-
     if diffusion_config['conditional']:
      # ----- NEW: seed with real frame t0 (selected by sample_file_start_idx) -----
 
@@ -104,12 +100,11 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             T, C, H, W = t0_tensor.shape
             batch_cond = t0_tensor[1:, ...].reshape(1, (T-1)*C, H, W) # [T-1, C, H, W] -> [1, (T-1)*C, H, W]
 
+            print('batch_cond shape: ', batch_cond.shape)
+
+        batch_cond = batch_cond.float().to(device)
     else:
         batch_cond = None
-    
-    if diffusion_config['conditional']:
-        print('batch_cond shape: ', batch_cond.shape)
-        batch_cond = batch_cond.float().to(device)
 
 
     # Loop over the number of batches    
@@ -120,41 +115,47 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                         model_config['im_size'],
                         model_config['im_size'])).float().to(device)
         
+        if sample_config['sampler'] == 'ddpm':
+            for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
-        for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
+                t_tensor = timesteps[i].to(device)  # Get the current timestep tensor
+                # print('********** ', t_tensor, t_tensor.squeeze(0))
 
-            t_tensor = timesteps[i]
-            # print('********** ', t_tensor, t_tensor.squeeze(0))
+                with autocast('cuda'):
+                    # Get prediction of noise
+                    noise_pred = model(xt, t_tensor, cond=batch_cond)
+                    
+                    # Use scheduler to get x0 and xt-1
+                    xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
 
+        elif sample_config['sampler'] in ['dpm-solver', 'dpm-solver++']:
 
-            if diffusion_config['conditional']:
-                model_in = torch.cat((xt, batch_cond), dim=1) # [B, C, H, W]
-                
-                # noise = torch.randn_like(xt_prev.unsqueeze(0)).to(device)
-                # # print(xt_prev.unsqueeze(0).shape, noise.shape)
-                # xt_prev_noisy = scheduler.add_noise(xt_prev.unsqueeze(0), noise, t_tensor)
-                # # inject clean conditioning channels (u_{t-1}, v_{t-1})
-                # xt[:, :model_config['im_channels']-2, :, :] = xt_prev_noisy.to(device)
+            # Continuous-time noise schedule built from *existing* betas
+            ns = NoiseScheduleVP('discrete', 
+                                  alphas_cumprod=scheduler.alpha_cum_prod)  # :contentReference[oaicite:0]{index=0}
+ 
+            # Wrap the UNet so that it accepts *continuous* t ∈ (0, 1]
+            model_kwargs = dict(cond=batch_cond)
+            model_fn = model_wrapper(model,
+                                      noise_schedule=ns,
+                                      model_type='noise' if train_config['loss']=='noise' else 'x_start',
+                                      model_kwargs  = model_kwargs,
+                                      guidance_type = sample_config['dpm_guidance'],)              
+             
+            dpm_solver = DPM_Solver(model_fn, ns, algorithm_type="dpmsolver++")
 
-            else:
-                model_in = xt
+            xt = dpm_solver.sample(xt,
+                                    steps      = sample_config['dpm_steps'],
+                                    t_start    = 1.0,                  # corresponds to DDPM t = num_timesteps-1
+                                    t_end      = 1.0 / ns.total_N,     # ≈1e-3
+                                    order      = sample_config['dpm_order'],
+                                    method     = sample_config['dpm_method'],
+                                    skip_type  = sample_config['dpm_skip'],)
 
-            if diffusion_config['coord_conv']:
-                coord_grids_batch = coord_grids.repeat(model_in.shape[0], 1, 1, 1)  # Repeat for batch size
-                model_in = torch.cat((model_in, coord_grids_batch), dim=1)  # Concatenate the coordinate grids
-                
-            with autocast('cuda'):
-                # Get prediction of noise
-                noise_pred = model(model_in, t_tensor)
-                
-                # Use scheduler to get x0 and xt-1
-                # if diffusion_config['conditional']:
-                #     xt = scheduler.sample_prev_timestep_partial(xt, noise_pred, t_tensor, n_cond=model_config['im_channels']//2)
-                # else:
-                xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
                 
         if sample_config['save_image'] or batch_count < 5:
-            save_image(xt, i, train_config, sample_config, dataset_config, run_num, batch_count)
+            diffusion_timestep = 0
+            save_image(xt, diffusion_timestep, train_config, sample_config, dataset_config, run_num, batch_count)
 
         if diffusion_config['conditional']:
             # Shift batch_cond to remove the last time step and add the new one at the beginning
@@ -166,9 +167,9 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                 dim=1
             )
 
-            print('batch_cond subtracted shape: ',  batch_cond[:, :-C, :, :].shape)
-            print('xt shape: ', xt.shape)
-            print('batch_cond shape: ', batch_cond.shape)
+            # print('batch_cond subtracted shape: ',  batch_cond[:, :-C, :, :].shape)
+            # print('xt shape: ', xt.shape)
+            # print('batch_cond shape: ', batch_cond.shape)
             
             xt_final = xt[:, :model_config['pred_channels'], :, :].detach()
         else:
@@ -184,6 +185,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             xt_cpu = xt_final.cpu()
 
             np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
+            print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} to disk.")
 
 
 def infer(args):
@@ -202,10 +204,14 @@ def infer(args):
     train_config = config['train_params']
     sample_config = config['sample_params']
     run_num = args.run_num
+
+    # Unconditional modeling haVe no conditioning channels
+    if not diffusion_config['conditional']:
+        model_config['cond_channels'] = 0
     
     # Create model and load checkpoint
     model = Unet(model_config)
-
+    
     # If your model is fully scriptable, script it first
     # model = torch.jit.script(model)
 

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from tools.util import generate_grid
+
 def get_time_embedding(time_steps, temb_dim):
     r"""
     Convert time steps tensor into an embedding using the
@@ -359,6 +361,8 @@ class Unet(nn.Module):
         im_channels = model_config['im_channels']
         self.pred_channels = model_config['pred_channels']
         self.down_channels = model_config['down_channels']
+        self.cond_channels = model_config['cond_channels']
+        self.coord_conv = model_config['coord_conv']
         self.mid_channels = model_config['mid_channels']
         self.t_emb_dim = model_config['time_emb_dim']
         self.down_sample = model_config['down_sample']
@@ -366,6 +370,10 @@ class Unet(nn.Module):
         self.num_mid_layers = model_config['num_mid_layers']
         self.num_up_layers = model_config['num_up_layers']
         self.padding_mode = model_config['padding_mode']
+        self.im_size = model_config['im_size']
+
+        # total input channels
+        total_in = im_channels + self.cond_channels + (2 if self.coord_conv else 0)
         
         assert self.mid_channels[0] == self.down_channels[-1]
         assert self.mid_channels[-1] == self.down_channels[-2]
@@ -379,7 +387,7 @@ class Unet(nn.Module):
         )
 
         self.up_sample = list(reversed(self.down_sample))
-        self.conv_in = nn.Conv2d(im_channels, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode=self.padding_mode)
+        self.conv_in = nn.Conv2d(total_in, self.down_channels[0], kernel_size=3, padding=(1, 1), padding_mode=self.padding_mode)
         
         self.downs = nn.ModuleList([])
         for i in range(len(self.down_channels)-1):
@@ -401,8 +409,7 @@ class Unet(nn.Module):
         self.conv_out = nn.Conv2d(16, self.pred_channels, kernel_size=3, padding=1, padding_mode=self.padding_mode)
 
     
-    def forward(self, x, t):
-    # def forward(self, x, t, x_init=None):
+    def forward(self, x, t, *, cond=None):
         # Shapes assuming downblocks are [C1, C2, C3, C4]
         # Shapes assuming midblocks are [C4, C4, C3]
         # Shapes assuming downsamples are [True, True, False]
@@ -410,6 +417,17 @@ class Unet(nn.Module):
 
         # concatenate conditional x_init along channel dim
         # x = torch.cat([x, x_init], dim=1) if x_init is not None else x
+
+        device = x.device
+        # Concatenate conditional input
+        if cond is not None:
+            x = torch.cat((x, cond), dim=1)
+
+        # Concat coordinate grid if coord_conv is True
+        if self.coord_conv:
+            coord_grids = generate_grid(self.im_size, self.im_size, device=device)
+            coord_grids_batch = coord_grids.repeat(x.shape[0], 1, 1, 1)  # Repeat for batch size
+            x = torch.cat((x, coord_grids_batch), dim=1)
         
         out = self.conv_in(x)
         # B x C1 x H x W

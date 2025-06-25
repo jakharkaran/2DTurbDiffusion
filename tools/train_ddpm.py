@@ -88,6 +88,10 @@ def train(args):
         turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
                                     generator=dl_gen, worker_init_fn=worker_init_fn)
         
+    # Ensuring 0 condtional channels if not conditional
+    if not diffusion_config['conditional']:
+        model_config['cond_channels'] = 0 # 
+        
     # Instantiate the model
     model = Unet(model_config)
     
@@ -116,12 +120,6 @@ def train(args):
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
     Lx, Ly = 2 * torch.pi, 2 * torch.pi
     # Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
-
-    if diffusion_config['coord_conv']:
-    # Generate coordinate grids for the model input
-        coord_grids = generate_grid(nx, ny, device=device) # [1, 2, nx, ny]
-        # print('Coordinate grids shape: ', coord_grids.shape)  
-
 
     # --- Instantiate the Differentiator ---
     diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device)
@@ -193,7 +191,8 @@ def train(args):
                 # Split batch_data along T dimension
                 batch_im = batch_data[:, 0, ...]      # [B, C, H, W] (first T)
                 # [B, T-1, C, H, W] (remaining T), Stack T-1 and C into channel dimension -> [B, (T-1)*C, H, W]
-                batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)      
+                batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)   
+                batch_cond = batch_cond.float().to(device)
             else:
                 batch_cond = None
 
@@ -215,7 +214,7 @@ def train(args):
                     bs_div=1
 
                 bs_mse = batch_size - bs_div
-                print('bs_mese:', bs_mse, 'bs_div:', bs_div)
+                print('bs_mse:', bs_mse, 'bs_div:', bs_div)
 
                 im = batch_im[:bs_mse].float().to(device)
                 batch_div = batch_im[bs_mse:].float().to(device)
@@ -227,37 +226,15 @@ def train(args):
             
             # Sample random noise
             noise = torch.randn_like(im).to(device)
-
-
-            # Add noise to images according to timestep
-            # Have dataloader output x_init
-            # model(noisy_im, t) -> model(noisy_im, t, x_init)
-            # if diffusion_config['conditional']:
-            #     noisy_im = scheduler.add_noise_partial(im, noise, t, n_cond=model_config['im_channels']//2)
-
-            # else:
             noisy_im = diffusion_noise_scheduler.add_noise(im, noise, t)
 
-            if diffusion_config['conditional']:
-                # Concatenate the conditioning data with the noisy image
-                batch_cond = batch_cond.float().to(device)
-                model_in = torch.cat((noisy_im, batch_cond), dim=1)
-            else:
-                model_in = noisy_im
-
-            if diffusion_config['coord_conv']:
-                coord_grids_batch = coord_grids.repeat(model_in.shape[0], 1, 1, 1)  # Repeat for batch size
-                model_in = torch.cat((model_in, coord_grids_batch), dim=1)  # Concatenate the coordinate grids
-
-            model_out = model(model_in, t)
+            model_out = model(noisy_im, t, cond=batch_cond)
 
             # print('Model out: ', noise.shape)
-            # sys.exit()
 
             # make_dot(model_out, params=dict(model.named_parameters())).render("model_architecture", format="png")
             # summary(model, input_size=(10, 10))
 
-            # sys.exit()
 
             if train_config['loss'] == 'noise':
                 # Noise is predicted by the model
@@ -369,8 +346,6 @@ def train(args):
                 loss_div = train_config['divergence_loss_weight'] * torch.mean(torch.abs(div))
                 loss = loss_mse + loss_div
 
-                if logging_config['log_to_wandb']:
-                    log_data["loss_div"] = loss_div # loggin for wandb
 
                 # model.train()
 
@@ -392,9 +367,7 @@ def train(args):
             batch_grad_norm = grad_norm(model)
             batch_grad_max = grad_max(model)
 
-
             optimizer.step()
-
 
             if logging_config['log_to_wandb']:
                 batch_log = {

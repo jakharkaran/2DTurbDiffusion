@@ -22,16 +22,19 @@ dataset_params:
 
 diffusion_params:
   conditional: !!bool False # True False
-  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to im_channels
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
   beta_end : 0.02
 
 model_params: # U-NET
-  padding_mode: 'circular' # Padding of conv2d layers. 'zeros': standard non-periodic UNET; 'circular': periodic UNET
-  im_channels : 1 # 2 when conditional=False, 4, 6... when conditional=True; = pred_channels * (1 + num_prev_conditioning_steps) for conditional=True; + 2 (if coord_conv)
-  pred_channels: 1 # =im_channels for conditional=False
+  padding_mode: 'circular' # Padding of conv2d layers. 'zeros': standard non-periodic UNET; 'circular': periodic UNET (maybe need coord_conv=True for UDM )
+  im_channels : 1 # 2 when conditional=False
+  pred_channels: 1 # =im_channels for conditional=False; 
+  cond_channels: 0 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
+  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
+  # input_channels = im_channels + cond_channels (if conditional) + 2 (if coord_conv)
+  # Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
   im_size : 28
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
@@ -45,8 +48,8 @@ model_params: # U-NET
 train_params:
   task_name: 'minst_periodic'
   batch_size: 64
-  num_epochs: 100
-  optimizer: 'adam' # 'adam' 'adamw'
+  num_epochs: 400
+  optimizer: 'adamw' # 'adam' 'adamw'
   scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
   lr: 1e-4
   lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
@@ -73,11 +76,20 @@ train_params:
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
+
 # For Sampling (Inference)
 sample_params:
   global_seed: null # Global seed for reproducibility; If null, it will be random seed - It should be null to produce different samples for each ensemble
+
+  sampler: 'dpm-solver++' # ddpm ddim dpm-solver dpm-solver++ # Sampling method
+  dpm_steps: 50       # ↓ = faster, ↑ = better quality
+  dpm_order: 3       # '1' '2' '3'  (3 recommended for unconditional; 1: equivalent to DDIM)
+  dpm_method: "singlestep"  # 'singlestep' 'multistep' 'adaptive'
+  dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
+  dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
+
   sample_batch_size : 64 # Inference data batch size
   num_sample_batch : 10 # number of samples = sample_batch_size * num_sample_batch
   sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
   save_image: !!bool True # Saves snapshots of emulated data
-  save_data: !!bool True # Saved emulated data
+  save_data: !!bool True # Saved emulated data # First five batches will always be saved
