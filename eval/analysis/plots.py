@@ -47,6 +47,7 @@ def save_image(xt, time_step, train_config, sample_config, dataset_config, run_n
             figU.subplots_adjust(wspace=0.1, hspace=0.1)
 
         figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+        plt.close(figU) # Close the figure to free up memory
 
         if not 'mnist' in dataset_config['data_dir'].lower():
 
@@ -65,3 +66,4 @@ def save_image(xt, time_step, train_config, sample_config, dataset_config, run_n
                 figV.subplots_adjust(wspace=0.1, hspace=0.1)
 
             figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+            plt.close(figV)
