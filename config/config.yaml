@@ -1,7 +1,7 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool False # not set-up - can be setup for logging to screen
   diagnostic_logs: !!bool False # not set-up
-  log_to_wandb: !!bool False # True False
+  log_to_wandb: !!bool True # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: 'test'
   wandb_group: 'static'
@@ -12,7 +12,7 @@ dataset_params:
   # data_dir: 'data_mnist/train/images'
   data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
   
-  file_range: [5000, 7500] # range of files to load
+  file_range: [5000, 5100] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
   step_size: 1 # step size for data loading (every nth sample)
   condition_step_size: 1 # step size for conditioning data loading (every nth sample)
@@ -22,7 +22,7 @@ dataset_params:
   normalize: !!bool True
 
 diffusion_params:
-  conditional: !!bool False # True False
+  conditional: !!bool True # True False
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
@@ -33,7 +33,7 @@ model_params: # U-NET
   im_channels : 2 # 2 when conditional=False
   pred_channels: 2 # =im_channels for conditional=False; 
   cond_channels: 2 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
-  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
+  coord_conv: !!bool True # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
   # input_channels = im_channels + cond_channels (if conditional) + 2 (if coord_conv)
   # Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
   im_size : 64
@@ -88,7 +88,7 @@ sample_params:
   dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
-  sample_batch_size : 4 # Inference data batch size
+  sample_batch_size : 1 # Inference data batch size
   num_sample_batch : 25 # number of samples = sample_batch_size * num_sample_batch
   sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
   save_image: !!bool True # Saves snapshots of emulated data

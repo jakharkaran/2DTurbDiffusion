@@ -13,7 +13,7 @@ from torch.amp import autocast
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import init_process_group, destroy_process_group, barrier, get_rank, get_world_size
 
 # Add the project root directory to sys.path for proper imports
 # This ensures imports work regardless of whether script is run with python -m or torchrun
@@ -37,6 +37,9 @@ print("Device:", device, "  |  Device ID:", device_ID)
 def ddp_setup():
    init_process_group(backend="nccl")
    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+def ddp_cleanup():
+    destroy_process_group()
 
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num):
@@ -68,8 +71,8 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
     # Precompute timesteps once
     timesteps = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
-    # Create directory for saving generated data if required
-    if sample_config['save_data']:
+    # Create directory for saving generated data if required - only on rank 0
+    if sample_config['save_data'] and device_ID == 0:
         os.makedirs(os.path.join(train_config['save_dir'], 'data', run_num), exist_ok=True)
 
         # List all .npy files in the directory
@@ -191,6 +194,10 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         else:
             xt_final = xt.detach()
 
+        # Synchronize all processes after sampling
+        if torch.distributed.is_initialized():
+            barrier()
+
         if sample_config['save_data']:
             
             if 'mnist' in dataset_config['data_dir'].lower():
@@ -232,17 +239,20 @@ def infer(args):
     # Wrap with DistributedDataParallel for multi-GPU training
     model = DDP(model, device_ids=[device_ID], output_device=device_ID)
 
-    # Create output directories &   ### Saving config file with the model weights
+    # Create output directories & task name
     if train_config['model_collapse']:
         task_name = train_config['task_name'] + '_' + train_config['model_collapse_type'] + '_' + str(train_config['model_collapse_gen'])
     else:
         task_name = train_config['task_name']
-    train_config['save_dir'] =  os.path.join('results', task_name)
+    
+    # Make results path relative to project root
+    train_config['save_dir'] = os.path.join(project_root, 'results', task_name)
 
     # Load weights/checkpoint if found
     if os.path.exists(os.path.join(train_config['save_dir'], train_config['best_ckpt_name'])):
-        print('Loading trained model')
-        checkpoint = torch.load(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']), weights_only=False)
+        print(f'Loading trained model from {os.path.join(train_config["save_dir"], train_config["best_ckpt_name"])}')
+        checkpoint = torch.load(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']), 
+                              map_location=f'cuda:{device_ID}', weights_only=False)
 
         # Load model
         model.load_state_dict(checkpoint['model_state'])
@@ -270,7 +280,14 @@ if __name__ == '__main__':
                         help='Run number for the experiment')
 
     args = parser.parse_args()
+    
+    # Make config path relative to project root if it's a relative path
+    if not os.path.isabs(args.config_path):
+        args.config_path = os.path.join(project_root, args.config_path)
 
     ddp_setup() # Initialize distributed sampling environment
-    # Call function with the parsed arguments
-    infer(args)
+    try:
+        # Call function with the parsed arguments
+        infer(args)
+    finally:
+        ddp_cleanup()  # Clean up distributed sampling environment
