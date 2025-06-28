@@ -5,13 +5,26 @@ import os, sys
 import shutil
 import numpy as np
 from tqdm import tqdm
-from torch.optim import Adam, AdamW
-from torch.utils.data import DataLoader
-from torch.amp import autocast
 import wandb
 import matplotlib.pyplot as plt
 import random
+from pathlib import Path
 
+from torch.optim import Adam, AdamW
+from torch.utils.data import DataLoader
+
+import torch.multiprocessing as mp
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+
+# Add the project root directory to sys.path for proper imports
+# This ensures imports work regardless of whether script is run with python -m or torchrun
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Importing custom modules
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
@@ -23,11 +36,17 @@ from tools.util import SpectralDifferentiator, grad_norm, grad_max, generate_gri
 # from torchinfo import summary
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Device: {device}")
 
 if torch.cuda.is_available():
     print("Number of GPUs available:", torch.cuda.device_count())
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_ID = int(os.environ["LOCAL_RANK"])
+print("Device:", device, "  |  Device ID:", device_ID)
+
+def ddp_setup():
+   init_process_group(backend="nccl")
+   torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 def train(args):
     # Read the config file #
@@ -55,13 +74,6 @@ def train(args):
     np.random.seed(GLOBAL_SEED)
     torch.manual_seed(GLOBAL_SEED)
 
-    if logging_config['log_to_wandb']:
-        # Set up wandb
-        wandb.login()
-        wandb.init(project=logging_config['wandb_project'], group=logging_config['wandb_group'],
-                   name=logging_config['wandb_name'], config=config)
-
-
     # Create the noise scheduler
     diffusion_noise_scheduler = LinearNoiseScheduler(num_timesteps=diffusion_config['num_timesteps'],
                                      beta_start=diffusion_config['beta_start'],
@@ -85,8 +97,8 @@ def train(args):
     else:
         # Turbulence dataset
         dataset = CustomMatDataset(dataset_config, train_config, sample_config, conditional=diffusion_config['conditional'])
-        turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4, pin_memory=True, \
-                                    generator=dl_gen, worker_init_fn=worker_init_fn)
+        turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4, pin_memory=True, \
+                                    generator=dl_gen, worker_init_fn=worker_init_fn, sampler=DistributedSampler(dataset)) # No shuffle for DistributedSampler
         
     # Ensuring 0 condtional channels if not conditional
     if not diffusion_config['conditional']:
@@ -94,27 +106,17 @@ def train(args):
         
     # Instantiate the model
     model = Unet(model_config)
+    model = model.to(device_ID) # Move model to device first, then wrap with DDP
     
-    # If multiple GPUs are available, wrap with DataParallel
-    if torch.cuda.is_available():
-        num_gpus = torch.cuda.device_count()
-        print(f"GPUs available: {num_gpus}")
-        if num_gpus > 1:
-            print("Using DataParallel to run on multiple GPUs.")
-            model = torch.nn.DataParallel(model)
-    model = model.to(device)
-    
+    # Wrap with DistributedDataParallel for multi-GPU training
+    model = DDP(model, device_ids=[device_ID], output_device=device_ID)
     model.train()
-
-    # Watch model gradients with wandb
-    if logging_config['log_to_wandb']:
-        wandb.watch(model, log="all", log_freq=logging_config['wandb_table_logging_interval'],)
     
     # Create output directories &   ### Saving config file with the model weights
     if train_config['model_collapse']:
-        save_dir =  os.path.join('results', train_config['task_name'] + '_' + train_config['model_collapse_type'] + '_' + str(train_config['model_collapse_gen']))
+        save_dir = os.path.join(project_root, 'results', train_config['task_name'] + '_' + train_config['model_collapse_type'] + '_' + str(train_config['model_collapse_gen']))
     else:
-        save_dir = os.path.join('results',train_config['task_name'])
+        save_dir = os.path.join(project_root, 'results', train_config['task_name'])
 
     # 2D Turbulence System Parameter
     nx, ny = int(model_config['im_size']/dataset_config['downsample_factor']), int(model_config['im_size']/dataset_config['downsample_factor'])
@@ -122,7 +124,7 @@ def train(args):
     # Kx, Ky, _, _, invKsq = initialize_wavenumbers_rfft2(nx, ny, Lx, Ly, INDEXING='ij')
 
     # --- Instantiate the Differentiator ---
-    diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device)
+    diff = SpectralDifferentiator(nx=nx, ny=ny, Lx=Lx, Ly=Ly, device=device_ID)
 
     if train_config['divergence_loss']:
         # Load the mean and std for de-normalization
@@ -130,23 +132,18 @@ def train(args):
         mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
         std = np.asarray([mean_std_data['U_std'], mean_std_data['V_std']])
 
-        mean_tensor = torch.tensor(mean.reshape(1, mean.shape[0], 1, 1)).to(device)
-        std_tensor = torch.tensor(std.reshape(1, std.shape[0], 1, 1)).to(device)
+        mean_tensor = torch.tensor(mean.reshape(1, mean.shape[0], 1, 1)).to(device_ID)
+        std_tensor = torch.tensor(std.reshape(1, std.shape[0], 1, 1)).to(device_ID)
 
         if train_config['divergence_loss_type'] == 'denoise_sample':
             # Precompute timesteps for denoising
-            timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+            timesteps = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
-    print('*** Saving weights: ', save_dir)
+    print('*** Saving Config File: ', save_dir)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
         shutil.copy(args.config_path, save_dir)
-    
-    # Load checkpoint if found
-    if os.path.exists(os.path.join(save_dir,train_config['ckpt_name'])):
-        print('Loading checkpoint as found one')
-        model.load_state_dict(torch.load(os.path.join(save_dir,
-                                                      train_config['ckpt_name']), map_location=device))
+
 
     # Specify training parameters
     num_epochs = train_config['num_epochs']
@@ -169,15 +166,64 @@ def train(args):
         warmuplr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=train_config['warmup_start_factor'],
                                                               total_iters=train_config['warmup_total_iters'])
 
+    # Set up logging with wandb 
+    if logging_config['log_to_wandb']:
+
+        # Set up wandb
+        wandb.login()
+        wandb_id_path = Path(save_dir) / "wandb_id.txt"
+
+        if wandb_id_path.exists():               # Resume run
+            run_id  = wandb_id_path.read_text().strip()
+            resume  = "allow"                    # "must" works too
+        else:                                    # fresh run
+            run_id  = wandb.util.generate_id()   # or uuid.uuid4().hex
+            wandb_id_path.write_text(run_id)
+            resume  = None                       # start fresh
+            resume  = None                       # start fresh
+
+        wandb.init(project=logging_config['wandb_project'], group=logging_config['wandb_group'],
+                   name=logging_config['wandb_name'], config=config, id=run_id, resume=resume)
+
+        # Watch model gradients with wandb
+        wandb.watch(model, log="all", log_freq=logging_config['wandb_table_logging_interval'],)
+
+    # Load checkpoint if found
+    if os.path.exists(os.path.join(save_dir, train_config['ckpt_name'])):
+        print('Loading checkpoint as found one')
+        checkpoint = torch.load(os.path.join(save_dir, train_config['ckpt_name']), weights_only=False)
+        print(checkpoint.keys())
+        
+        # Load model and optimizer state
+        model.load_state_dict(checkpoint['model_state'])
+        optimizer.load_state_dict(checkpoint['optimizer_state'])
+        
+        # Restore training state
+        start_epoch = checkpoint['epoch']
+        best_loss = checkpoint['best_loss']
+        iteration = checkpoint['iteration']
+        
+        print(f'Checkpoint loaded: epoch {start_epoch}, best_loss {best_loss}, iteration {iteration}')
+    else:
+        start_epoch = 0
+        best_loss = 1e6
+        iteration = 0
+
     criterion = torch.nn.MSELoss()
 
-
-    iteration = 0
     noise_cond = None
     # Run training
     best_loss = 1e6 # initialize
-    for epoch_idx in range(num_epochs):
+    for epoch_idx in range(start_epoch, num_epochs):
+        epoch = epoch_idx + 1
         losses = []
+        
+        # Lists to store per-iteration metrics for batch logging to wandb
+        iteration_metrics = []
+        
+        # Set epoch for DistributedSampler to ensure proper data shuffling across epochs
+        if hasattr(turb_dataloader, 'sampler') and hasattr(turb_dataloader.sampler, 'set_epoch'):
+            turb_dataloader.sampler.set_epoch(epoch_idx)
 
         for batch_data in tqdm(turb_dataloader):
 
@@ -192,7 +238,7 @@ def train(args):
                 batch_im = batch_data[:, 0, ...]      # [B, C, H, W] (first T)
                 # [B, T-1, C, H, W] (remaining T), Stack T-1 and C into channel dimension -> [B, (T-1)*C, H, W]
                 batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)   
-                batch_cond = batch_cond.float().to(device)
+                batch_cond = batch_cond.float().to(device_ID)
             else:
                 batch_cond = None
 
@@ -216,16 +262,16 @@ def train(args):
                 bs_mse = batch_size - bs_div
                 print('bs_mse:', bs_mse, 'bs_div:', bs_div)
 
-                im = batch_im[:bs_mse].float().to(device)
-                batch_div = batch_im[bs_mse:].float().to(device)
+                im = batch_im[:bs_mse].float().to(device_ID)
+                batch_div = batch_im[bs_mse:].float().to(device_ID)
             else:
-                im = batch_im.float().to(device)
+                im = batch_im.float().to(device_ID)
 
             # Sample timestep
-            t = torch.randint(0, diffusion_config['num_timesteps'], (im.shape[0],)).to(device)
+            t = torch.randint(0, diffusion_config['num_timesteps'], (im.shape[0],)).to(device_ID)
             
             # Sample random noise
-            noise = torch.randn_like(im).to(device)
+            noise = torch.randn_like(im).to(device_ID)
             noisy_im = diffusion_noise_scheduler.add_noise(im, noise, t)
 
             model_out = model(noisy_im, t, cond=batch_cond)
@@ -284,12 +330,12 @@ def train(args):
                 if train_config['divergence_loss_type'] == 'denoise_sample' and train_config['loss'] == 'noise':
 
                     # Sample timestep
-                    timesteps_div = [torch.tensor(i, device=device).unsqueeze(0) for i in range(train_config['denoise_sample_timestep'])]
+                    timesteps_div = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(train_config['denoise_sample_timestep'])]
                     # Sample random noise
-                    noise_div = torch.randn_like(batch_div).to(device)
+                    noise_div = torch.randn_like(batch_div).to(device_ID)
 
                     # Add noise to images according to timestep
-                    t_div_noise = torch.full((batch_div.shape[0],), train_config['denoise_sample_timestep']-1, dtype=torch.int).to(device)
+                    t_div_noise = torch.full((batch_div.shape[0],), train_config['denoise_sample_timestep']-1, dtype=torch.int).to(device_ID)
                     noisy_im_div = diffusion_noise_scheduler.add_noise(batch_div, noise_div, t_div_noise)
 
                     for i in tqdm(reversed(range( train_config['denoise_sample_timestep']))):
@@ -316,7 +362,7 @@ def train(args):
                 #         xt = torch.randn((sample_config['batch_size'],
                 #         model_config['im_channels'],
                 #         model_config['im_size'],
-                #         model_config['im_size'])).to(device)
+                #         model_config['im_size'])).to(device_ID)
 
                 #         for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
                                 
@@ -352,6 +398,7 @@ def train(args):
 
             else:
                 loss = loss_mse
+                loss_div = 0.0  # Set to 0 when divergence loss is not used
 
             losses.append(loss.item())
             loss.backward()
@@ -366,56 +413,78 @@ def train(args):
             # Calculate maximum gradient value across all parameters
             batch_grad_norm = grad_norm(model)
             batch_grad_max = grad_max(model)
+            
+            # Store metrics for this iteration
+            if logging_config['log_to_wandb']:
+                iter_metrics = {
+                    "iteration": iteration,
+                    "batch_loss": loss.item(),
+                    "batch_loss_mse": loss_mse.item(),
+                    "batch_grad_norm": batch_grad_norm,
+                    "batch_grad_max": batch_grad_max,
+                }
+                
+                # Add divergence loss if it's being used
+                if train_config['divergence_loss']:
+                    iter_metrics["batch_loss_div"] = loss_div.item() if hasattr(loss_div, 'item') else loss_div
+                
+                iteration_metrics.append(iter_metrics)
 
             optimizer.step()
-
-            if logging_config['log_to_wandb']:
-                batch_log = {
-                    "iteration": iteration,
-                    # "batch_loss_mse":  loss_mse.item(),
-                    "batch_loss":      loss.item(),
-                    "batch_grad_norm": batch_grad_norm,
-                    "batch_grad_max":  batch_grad_max,
-                }
-                wandb.log(batch_log, step=iteration)
 
         mean_epoch_loss = np.mean(losses)
 
         # Adjust lr rate schedule if using
-        if train_config["warmup"] and (epoch_idx + 1) < train_config["warmup_total_iters"]:
+        if train_config["warmup"] and (epoch) < train_config["warmup_total_iters"]:
             warmuplr.step()
         else:
             if train_config["scheduler"] == 'ReduceLROnPlateau':
                 LRscheduler.step(mean_epoch_loss)
             elif train_config["scheduler"] == 'CosineAnnealingLR':
                 LRscheduler.step()
-                if (epoch_idx + 1) >= train_config['num_epochs']:
+                if (epoch) >= train_config['num_epochs']:
                     print("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
                     break
 
+        # Save the model checkpoint
+        checkpoint = {
+            'epoch': epoch,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'best_loss': min(best_loss, mean_epoch_loss),  # Use the actual best loss
+            'iteration': iteration
+        }
 
         if best_loss > mean_epoch_loss:
             best_loss = mean_epoch_loss
-            torch.save(model.state_dict(), os.path.join(save_dir,
-                                                        train_config['best_ckpt_name']))
+            if device_ID == 0:
+                torch.save(checkpoint, os.path.join(save_dir, train_config['best_ckpt_name']))
             
         print('Finished epoch:{} | Loss (mean/current/best) : {:.2e}/{:.2e}/{:.2e}'.format(
-            epoch_idx + 1,
+            epoch,
             mean_epoch_loss, loss, best_loss
         ))
         # Save the model
-        torch.save(model.state_dict(), os.path.join(save_dir,
+        if device_ID == 0:
+            # Save the model
+            torch.save(checkpoint, os.path.join(save_dir,
                                                     train_config['ckpt_name']))
         
         if logging_config['log_to_wandb']:
-            epoch_log = {
-                "epoch":     epoch_idx + 1,
+            # First, log all the per-iteration metrics
+            for i, metrics in enumerate(iteration_metrics):
+                wandb.log(metrics, step=metrics['iteration'])
+    
+            # Then log the epoch summary
+            epoch_summary = {
+                "epoch": epoch_idx,
                 "epoch_loss": mean_epoch_loss,
                 "epoch_loss_best": best_loss,
-                "lr":        optimizer.param_groups[0]['lr'],
+                "lr": optimizer.param_groups[0]['lr'],
             }
-            # here we use the epoch number as the step
-            wandb.log(epoch_log, step=iteration)
+            
+            # Log epoch summary with a special step that won't conflict
+            wandb.log(epoch_summary, step=iteration)
     
     print('Training Completed ...')
 
@@ -430,4 +499,10 @@ if __name__ == '__main__':
                         default='config/config.yaml', type=str,
                         help='Path to the configuration file')
     args = parser.parse_args()
+    
+    # Make config path relative to project root if it's a relative path
+    if not os.path.isabs(args.config_path):
+        args.config_path = os.path.join(project_root, args.config_path)
+    
+    ddp_setup() # Initialize distributed training environment
     train(args)

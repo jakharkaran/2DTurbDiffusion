@@ -1,15 +1,25 @@
 import torch
-import torchvision
 import argparse
 import yaml
 import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from torchvision.utils import make_grid
-from torch.amp import autocast
 from tqdm import tqdm
 import random
+
+from torch.amp import autocast
+
+import torch.multiprocessing as mp
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+
+# Add the project root directory to sys.path for proper imports
+# This ensures imports work regardless of whether script is run with python -m or torchrun
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from models.unet_base import Unet
 from scheduler.linear_noise_scheduler import LinearNoiseScheduler
@@ -17,11 +27,17 @@ from scheduler.dpm_solver import NoiseScheduleVP, model_wrapper, DPM_Solver
 from dataset.dataloader import CustomMatDataset
 from eval.analysis.plots import save_image
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("Using device:", device)
-
 if torch.cuda.is_available():
     print("Number of GPUs available:", torch.cuda.device_count())
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_ID = int(os.environ["LOCAL_RANK"])
+print("Device:", device, "  |  Device ID:", device_ID)
+
+def ddp_setup():
+   init_process_group(backend="nccl")
+   torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num):
     r"""
@@ -46,11 +62,11 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         mean = np.asarray([mean_std_data['U_mean'], mean_std_data['V_mean']])
         std = np.asarray([mean_std_data['U_std'], mean_std_data['V_std']])
 
-        mean_tensor = torch.tensor(mean.reshape(mean.shape[0], 1, 1)).to(device)
-        std_tensor = torch.tensor(std.reshape(std.shape[0], 1, 1)).to(device)
+        mean_tensor = torch.tensor(mean.reshape(mean.shape[0], 1, 1)).to(device_ID)
+        std_tensor = torch.tensor(std.reshape(std.shape[0], 1, 1)).to(device_ID)
 
     # Precompute timesteps once
-    timesteps = [torch.tensor(i, device=device).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
+    timesteps = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
     # Create directory for saving generated data if required
     if sample_config['save_data']:
@@ -102,7 +118,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
 
             print('batch_cond shape: ', batch_cond.shape)
 
-        batch_cond = batch_cond.float().to(device)
+        batch_cond = batch_cond.float().to(device_ID)
     else:
         batch_cond = None
 
@@ -113,12 +129,12 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         xt = torch.randn((sample_config['sample_batch_size'],
                         model_config['pred_channels'],
                         model_config['im_size'],
-                        model_config['im_size'])).float().to(device)
+                        model_config['im_size'])).float().to(device_ID)
         
         if sample_config['sampler'] == 'ddpm':
             for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
-                t_tensor = timesteps[i].to(device)  # Get the current timestep tensor
+                t_tensor = timesteps[i].to(device_ID)  # Get the current timestep tensor
                 # print('********** ', t_tensor, t_tensor.squeeze(0))
 
                 with autocast('cuda'):
@@ -211,18 +227,10 @@ def infer(args):
     
     # Create model and load checkpoint
     model = Unet(model_config)
-    
-    # If your model is fully scriptable, script it first
-    # model = torch.jit.script(model)
+    model = model.to(device_ID)
 
-    # Multi-GPU Setup (DataParallel)
-    if torch.cuda.is_available():
-        num_gpus = torch.cuda.device_count()
-        print(f"GPUs available: {num_gpus}")
-        if num_gpus > 1:
-            print("Using DataParallel to run on multiple GPUs for inference.")
-            model = torch.nn.DataParallel(model)
-    model = model.to(device)
+    # Wrap with DistributedDataParallel for multi-GPU training
+    model = DDP(model, device_ids=[device_ID], output_device=device_ID)
 
     # Create output directories &   ### Saving config file with the model weights
     if train_config['model_collapse']:
@@ -231,9 +239,17 @@ def infer(args):
         task_name = train_config['task_name']
     train_config['save_dir'] =  os.path.join('results', task_name)
 
-    # Load weights
-    model.load_state_dict(torch.load(os.path.join(train_config['save_dir'],
-                                                  train_config['best_ckpt_name']), map_location=device))
+    # Load weights/checkpoint if found
+    if os.path.exists(os.path.join(train_config['save_dir'], train_config['best_ckpt_name'])):
+        print('Loading trained model')
+        checkpoint = torch.load(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']), weights_only=False)
+
+        # Load model
+        model.load_state_dict(checkpoint['model_state'])
+    else:
+        print(f"Checkpoint {train_config['best_ckpt_name']} not found in {train_config['save_dir']}. Exiting.")
+        sys.exit(0)
+
     model.eval()
     
     # Create the noise scheduler
@@ -255,5 +271,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    ddp_setup() # Initialize distributed sampling environment
     # Call function with the parsed arguments
     infer(args)
