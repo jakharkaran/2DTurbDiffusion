@@ -14,6 +14,7 @@ import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import barrier
+import torch.distributed as dist
 
 # Add the project root directory to sys.path for proper imports
 # This ensures imports work regardless of whether script is run with python -m or torchrun
@@ -111,7 +112,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
 
         else:
             # Initiate dataloader
-            seed_dataset = CustomMatDataset(dataset_config, train_config, sample_config, training=False, conditional=True)
+            seed_dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, training=False, conditional=True)
             t0_tensor = seed_dataset[0] # [T, C, H, W]
 
             T, C, H, W = t0_tensor.shape
@@ -124,8 +125,8 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         batch_cond = None
 
 
-    # Loop over the number of batches    
-    for batch_count in range(largest_file_number+1,sample_config['num_sample_batch']):
+    # Loop over the number of batches (each GPU generates all batches, then we gather)
+    for batch_count in range(largest_file_number + 1, sample_config['num_sample_batch']):
 
         xt = torch.randn((sample_config['sample_batch_size'],
                         model_config['pred_channels'],
@@ -201,10 +202,31 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             elif dataset_config['normalize']:
                 xt_final.mul_(std_tensor).add_(mean_tensor)
 
-            xt_cpu = xt_final.cpu()
+            # Gather samples from all GPUs
+            if torch.distributed.is_initialized():
+                # Create list to gather all samples
+                world_size = dist.get_world_size()
+                gathered_samples = [torch.zeros_like(xt_final) for _ in range(world_size)]
+                dist.all_gather(gathered_samples, xt_final)
+                
+                # Only rank 0 saves the gathered samples
+                if device_ID == 0:
+                    # Concatenate all samples along batch dimension
+                    all_samples = torch.cat(gathered_samples, dim=0)
+                    xt_cpu = all_samples.cpu()
+                    
+                    np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
+                    log_print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} with {xt_cpu.shape[0]} samples from {world_size} GPUs to disk.", log_to_screen=log_to_screen)
+            else:
+                # Single GPU case
+                xt_cpu = xt_final.cpu()
+                np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
+                log_print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} to disk.", log_to_screen=log_to_screen)
 
-            np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
-            log_print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} to disk.", log_to_screen=log_to_screen)
+    # Final synchronization to ensure all ranks complete before finishing
+    if torch.distributed.is_initialized():
+        barrier(device_ids=[device_ID])
+        log_print(f"All ranks completed. Batches generated: {sample_config['num_sample_batch']} per gpu", log_to_screen=log_to_screen)
 
 
 def infer(args):
