@@ -5,12 +5,14 @@ import scipy
 
 from torch.utils.data import Dataset
 
+from tools.logging_utils import log_print
+
 from py2d.initialize import initialize_wavenumbers_rfft2
 from py2d.convert import Omega2Psi, Psi2UV, UV2Omega
 from py2d.filter import filter2D
 
 class CustomMatDataset(Dataset):
-    def __init__(self, dataset_config, train_config, sample_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
+    def __init__(self, dataset_config, train_config, sample_config, logging_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
         """
         Args:
             data_dir (str): Directory with all the .mat files.
@@ -55,6 +57,10 @@ class CustomMatDataset(Dataset):
         self.get_Psi = get_Psi
         self.get_Omega = get_Omega
 
+        # Logging parameters
+        self.log_to_screen = logging_config['log_to_screen']
+        self.diagnostic_logs = logging_config['diagnostic_logs']
+
         #### Model Collapse
         if train_config['model_collapse']:
 
@@ -75,7 +81,7 @@ class CustomMatDataset(Dataset):
                     data_dir_last_gen = data_dir_first_gen + '_' + self.model_collapse_type + '_' + str(self.model_collapse_gen-1)
 
                 self.file_list_model_collapse = [os.path.join(data_dir_last_gen, 'data/1/', f"{i}.npy") for i in self.file_numbers]
-                print('** filenum **', filenum1, filenum2)
+                log_print(f'** filenum ** {filenum1} {filenum2}', log_to_screen=self.log_to_screen)
 
             elif self.model_collapse_type == 'all_gen':
                 # Build a unified file list
@@ -90,9 +96,9 @@ class CustomMatDataset(Dataset):
                     self.file_list_model_collapse.extend(files)
 
 
-            print('************************** length of file list - Model Collapse:', len(self.file_list_model_collapse), ' files', len(self.file_list_model_collapse)*self.file_batch_size, ' files')
+            log_print(f'************************** length of file list - Model Collapse: {len(self.file_list_model_collapse)} files {len(self.file_list_model_collapse)*self.file_batch_size} files', log_to_screen=self.log_to_screen)
 
-        print('************************** length of file list:', len(self.file_list_data))
+        log_print(f'************************** length of file list: {len(self.file_list_data)}', log_to_screen=self.log_to_screen)
 
     def __len__(self):
 
@@ -136,12 +142,12 @@ class CustomMatDataset(Dataset):
             idx_arr = [idx + step * self.condition_step_size for step in reversed(range(0, self.num_prev_conditioning_steps+1))]
             data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
             data_tensor = torch.stack(data_tensor_list, dim=0)  # shape: (T, C, H, W) T: t, t-1, t-2, ...
-            # print('idx:', idx_arr)
+            log_print(f'idx: {idx_arr}', log_to_screen=self.diagnostic_logs)
         else:
             data_tensor = self.load_data_single_step(idx)
             data_tensor = data_tensor.unsqueeze(0)  # shape: (1, C, H, W)
 
-        # print('data_tensor shape:', data_tensor.shape)
+        log_print(f'data_tensor shape: {data_tensor.shape}', log_to_screen=self.diagnostic_logs)
         return data_tensor
 
     def load_data_single_step(self, idx):
@@ -281,7 +287,7 @@ class CustomMatDataset(Dataset):
 
             return data_tensor_normalized # shape: [C, H, W]
         else:
-            # print(data_tensor.shape)
+            log_print(f'Data loader data tensor shape: {data_tensor.shape}', log_to_screen=self.diagnostic_logs)
             return data_tensor.unsqueeze(0) # shape: [C, H, W]
 
     def downsample_array(self, arr, x_factor, y_factor):

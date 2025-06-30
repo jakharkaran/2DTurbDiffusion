@@ -102,14 +102,14 @@ def train(args):
         turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
     else:
         # Turbulence dataset
-        dataset = CustomMatDataset(dataset_config, train_config, sample_config, conditional=diffusion_config['conditional'])
+        dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, conditional=diffusion_config['conditional'])
         turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4, pin_memory=True, \
                                     generator=dl_gen, worker_init_fn=worker_init_fn, sampler=DistributedSampler(dataset)) # No shuffle for DistributedSampler
         
     # Ensuring 0 condtional channels if not conditional
     if not diffusion_config['conditional']:
-        model_config['cond_channels'] = 0 # 
-        
+        model_config['cond_channels'] = 0 
+
     # Instantiate the model
     model = Unet(model_config)
     model = model.to(device_ID) # Move model to device first, then wrap with DDP
