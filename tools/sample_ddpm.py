@@ -30,14 +30,13 @@ from eval.analysis.plots import save_image
 from tools.logging_utils import log_print
 from tools.distributed_data_parallel_utils import ddp_setup, ddp_cleanup
 
+ddp_setup() # Initialize distributed sampling environment
 if torch.cuda.is_available():
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:  # Only rank 0 prints
         print("Number of GPUs available:", torch.cuda.device_count())
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device_ID = int(os.environ["LOCAL_RANK"])
-if device_ID == 0:  # Only rank 0 prints
-    print("Device:", device, "  |  Device ID:", device_ID)
 
 # Get distributed info early
 if torch.distributed.is_initialized():
@@ -46,6 +45,8 @@ if torch.distributed.is_initialized():
 else:
     world_size = 1
     rank = 0
+
+print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Rank:", rank, "  |  Device ID:", device_ID)
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num):
     r"""
@@ -322,7 +323,6 @@ if __name__ == '__main__':
     if not os.path.isabs(args.config_path):
         args.config_path = os.path.join(project_root, args.config_path)
 
-    ddp_setup() # Initialize distributed sampling environment
     try:
         # Call function with the parsed arguments
         infer(args)
