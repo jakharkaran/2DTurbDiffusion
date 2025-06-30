@@ -10,7 +10,7 @@ def get_rank():
     except:
         return 0
 
-def log_print(message, log_to_screen=True, end='\n'):
+def log_print(message, log_to_screen=True, print_all_devices=0, end='\n'):
     """
     Print function that respects distributed training and config flags.
     
@@ -20,8 +20,12 @@ def log_print(message, log_to_screen=True, end='\n'):
         force: If True, print regardless of log_to_screen setting (for critical messages)
         end: Line ending character (default: newline)
     """
+
     rank = get_rank()
-    
-    # Only rank 0 prints, and only if verbose is enabled
-    if rank == 0 and log_to_screen:
-        print(message, end=end)
+    # If print_all_devices is 'all', print on all devices
+    if print_all_devices == 'all' and log_to_screen:
+        print(f"[Device ID {rank}] {message}", end=end)
+    else:
+        # Get the rank of the current process
+        if rank == 0 and log_to_screen:
+            print(f"[Device ID {rank}] {message}", end=end)

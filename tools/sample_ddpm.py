@@ -36,17 +36,16 @@ if torch.cuda.is_available():
         print("Number of GPUs available:", torch.cuda.device_count())
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device_ID = int(os.environ["LOCAL_RANK"])
 
 # Get distributed info early
 if torch.distributed.is_initialized():
     world_size = dist.get_world_size()
-    rank = dist.get_rank()
+    device_ID = dist.get_rank() # rank
 else:
     world_size = 1
-    rank = 0
+    device_ID = 0
 
-print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Rank:", rank, "  |  Device ID:", device_ID)
+print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Device ID (Rank):", device_ID)
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num):
     r"""
@@ -81,10 +80,10 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
 
     # Create directory for saving generated data if required
     if sample_config['save_data']:
-        os.makedirs(os.path.join(train_config['save_dir'], 'data', run_num), exist_ok=True)
+        os.makedirs(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID)), exist_ok=True)
 
         # List all .npy files in the directory
-        npy_files = [f for f in os.listdir(os.path.join(train_config['save_dir'], 'data', run_num)) if f.endswith('.npy')]
+        npy_files = [f for f in os.listdir(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID))) if f.endswith('.npy')]
 
         if npy_files:
             # Extract numeric file numbers from filenames
@@ -133,18 +132,8 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
     else:
         batch_cond = None
 
-
     # Loop over rounds of generation (each GPU generates one file per round)
-    current_file_number = largest_file_number
-    target_files = sample_config['num_sample_batch']
-
-    while current_file_number < target_files:
-        # Each GPU gets a unique file number in this round
-        file_number = current_file_number + 1 + rank
-        
-        # Skip if this rank's file number exceeds the target
-        if file_number >= target_files:
-            break
+    for file_number in range(largest_file_number + 1, sample_config['num_sample_batch']):
 
         xt = torch.randn((sample_config['sample_batch_size'],
                         model_config['pred_channels'],
@@ -224,20 +213,17 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
 
 
             # Fast parallel saving: each GPU saves its own file with sequential numbering
-            np.save(os.path.join(train_config['save_dir'], 'data', run_num, f'{file_number}.npy'), xt_cpu.numpy())
-            log_print(f"Rank {rank}: Saved file {file_number} ({xt_cpu.shape[0]} samples)", log_to_screen=log_to_screen)
+            np.save(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'{file_number}.npy'), xt_cpu.numpy())
+            log_print(f"Saved file {file_number} ({xt_cpu.shape[0]} samples)", log_to_screen=log_to_screen, print_all_devices='all')
 
         # Barrier to ensure all ranks complete this round before moving to next
         if torch.distributed.is_initialized():
             barrier(device_ids=[device_ID])
-            
-        # Update for next round
-        current_file_number += world_size
 
     # Final synchronization to ensure all ranks complete before finishing
     if torch.distributed.is_initialized():
         barrier(device_ids=[device_ID])
-        log_print(f"All ranks completed. Generated files up to {current_file_number + world_size - 1}", log_to_screen=log_to_screen)
+        log_print(f"All ranks completed. Generated files up to {file_number}", log_to_screen=log_to_screen, print_all_devices='all')
 
 
 def infer(args):
