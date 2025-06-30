@@ -1,7 +1,7 @@
 logging_params: # Logging for Weights and biases
-  log_to_screen: !!bool False # not set-up - can be setup for logging to screen
-  diagnostic_logs: !!bool False # not set-up
-  log_to_wandb: !!bool True # True False
+  log_to_screen: !!bool True # Control detailed print statements for debugging/monitoring
+  diagnostic_logs: !!bool False # Log Diagnistic  to screen
+  log_to_wandb: !!bool False # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: 'test'
   wandb_group: 'static'
@@ -12,7 +12,7 @@ dataset_params:
   # data_dir: 'data_mnist/train/images'
   data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
   
-  file_range: [5000, 5100] # range of files to load
+  file_range: [5000, 7500] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
   step_size: 1 # step size for data loading (every nth sample)
   condition_step_size: 1 # step size for conditioning data loading (every nth sample)
@@ -22,7 +22,7 @@ dataset_params:
   normalize: !!bool True
 
 diffusion_params:
-  conditional: !!bool True # True False
+  conditional: !!bool False # True False
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
@@ -88,8 +88,8 @@ sample_params:
   dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
-  sample_batch_size : 1 # Inference data batch size
-  num_sample_batch : 25 # number of samples = sample_batch_size * num_sample_batch
+  sample_batch_size : 32 # Inference data batch size
+  num_sample_batch : 100 # number of samples = sample_batch_size * num_sample_batch
   sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
   save_image: !!bool True # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data # First five batches will always be saved

@@ -12,11 +12,12 @@ from pathlib import Path
 
 from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
+from torch.amp import autocast
 
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import barrier
 
 # Add the project root directory to sys.path for proper imports
 # This ensures imports work regardless of whether script is run with python -m or torchrun
@@ -30,23 +31,23 @@ from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from dataset.dataloader import CustomMatDataset
 from dataset.mnist_dataset import MnistDataset
 from tools.util import SpectralDifferentiator, grad_norm, grad_max, generate_grid
+from tools.logging_utils import log_print
+from tools.distributed_data_parallel_utils import ddp_setup, ddp_cleanup
 
 # Packages to outline architecture of the model
 # from torchviz import make_dot
 # from torchinfo import summary
 
-
-
+# Initialize early - keep these prints as they are useful for setup verification
 if torch.cuda.is_available():
-    print("Number of GPUs available:", torch.cuda.device_count())
+    if int(os.environ.get("LOCAL_RANK", 0)) == 0:  # Only rank 0 prints
+        print("Number of GPUs available:", torch.cuda.device_count())
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device_ID = int(os.environ["LOCAL_RANK"])
-print("Device:", device, "  |  Device ID:", device_ID)
 
-def ddp_setup():
-   init_process_group(backend="nccl")
-   torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+if device_ID == 0:  # Only rank 0 prints
+    print("Device:", device, "  |  Device ID:", device_ID)
 
 def train(args):
     # Read the config file #
@@ -54,12 +55,9 @@ def train(args):
         try:
             config = yaml.safe_load(file)
         except yaml.YAMLError as exc:
-            print("Error in configuration file:", exc)
+            log_print(f"Error in configuration file: {exc}", log_to_screen=True)
             sys.exit(1)
     
-    print(f'Configuration loaded: {config}')
-
-
     ########################
     diffusion_config = config['diffusion_params']
     dataset_config = config['dataset_params']
@@ -67,6 +65,14 @@ def train(args):
     train_config = config['train_params']
     logging_config = config['logging_params']
     sample_config = config['sample_params']
+
+
+    # Extract logging config to control verbosity
+    log_to_screen = logging_config['log_to_screen']
+    diagnostic_logs = logging_config['diagnostic_logs']
+    
+    log_print('Configuration loaded successfully', log_to_screen=log_to_screen)
+    log_print(f'Full config: {config}', log_to_screen=diagnostic_logs)
 
     GLOBAL_SEED = train_config['global_seed']
     # -------- main-process seeding -------------------------------------------
@@ -91,7 +97,7 @@ def train(args):
     # Initiate dataloader
     if 'mnist' in dataset_config['data_dir'].lower():
         # MNIST dataset for testing
-        print('** Using MNIST dataset for testing **')
+        log_print('** Using MNIST dataset for testing **', log_to_screen=log_to_screen)
         mnist = MnistDataset('train', im_path=dataset_config['data_dir'])
         turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
     else:
@@ -139,10 +145,11 @@ def train(args):
             # Precompute timesteps for denoising
             timesteps = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
-    print('*** Saving Config File: ', save_dir)
+    log_print(f'Saving config to: {save_dir}', log_to_screen=log_to_screen)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
-        shutil.copy(args.config_path, save_dir)
+        if device_ID == 0:  # Only rank 0 copies config
+            shutil.copy(args.config_path, save_dir)
 
 
     # Specify training parameters
@@ -166,8 +173,8 @@ def train(args):
         warmuplr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=train_config['warmup_start_factor'],
                                                               total_iters=train_config['warmup_total_iters'])
 
-    # Set up logging with wandb 
-    if logging_config['log_to_wandb']:
+    # Set up logging with wandb - only on main process
+    if logging_config['log_to_wandb'] and device_ID == 0:
 
         # Set up wandb
         wandb.login()
@@ -180,7 +187,6 @@ def train(args):
             run_id  = wandb.util.generate_id()   # or uuid.uuid4().hex
             wandb_id_path.write_text(run_id)
             resume  = None                       # start fresh
-            resume  = None                       # start fresh
 
         wandb.init(project=logging_config['wandb_project'], group=logging_config['wandb_group'],
                    name=logging_config['wandb_name'], config=config, id=run_id, resume=resume)
@@ -190,9 +196,9 @@ def train(args):
 
     # Load checkpoint if found
     if os.path.exists(os.path.join(save_dir, train_config['ckpt_name'])):
-        print('Loading checkpoint as found one')
+        log_print('Loading existing checkpoint', log_to_screen=log_to_screen)
         checkpoint = torch.load(os.path.join(save_dir, train_config['ckpt_name']), weights_only=False)
-        print(checkpoint.keys())
+        log_print(f'Checkpoint keys: {list(checkpoint.keys())}', log_to_screen=diagnostic_logs)
         
         # Load model and optimizer state
         model.load_state_dict(checkpoint['model_state'])
@@ -203,7 +209,7 @@ def train(args):
         best_loss = checkpoint['best_loss']
         iteration = checkpoint['iteration']
         
-        print(f'Checkpoint loaded: epoch {start_epoch}, best_loss {best_loss}, iteration {iteration}')
+        log_print(f'Checkpoint loaded: epoch {start_epoch}, best_loss {best_loss:.2e}, iteration {iteration}', log_to_screen=True)
     else:
         start_epoch = 0
         best_loss = 1e6
@@ -213,7 +219,6 @@ def train(args):
 
     noise_cond = None
     # Run training
-    best_loss = 1e6 # initialize
     for epoch_idx in range(start_epoch, num_epochs):
         epoch = epoch_idx + 1
         losses = []
@@ -260,7 +265,7 @@ def train(args):
                     bs_div=1
 
                 bs_mse = batch_size - bs_div
-                print('bs_mse:', bs_mse, 'bs_div:', bs_div)
+                log_print(f'Batch split - MSE: {bs_mse}, Divergence: {bs_div}', log_to_screen=log_to_screen)
 
                 im = batch_im[:bs_mse].float().to(device_ID)
                 batch_div = batch_im[bs_mse:].float().to(device_ID)
@@ -276,7 +281,7 @@ def train(args):
 
             model_out = model(noisy_im, t, cond=batch_cond)
 
-            # print('Model out: ', noise.shape)
+            log_print(f'Model out shape:  {model_out.shape}', log_to_screen=diagnostic_logs)
 
             # make_dot(model_out, params=dict(model.named_parameters())).render("model_architecture", format="png")
             # summary(model, input_size=(10, 10))
@@ -386,7 +391,7 @@ def train(args):
                 # De-normalize the data
                 if dataset_config['normalize']:
                     x0_pred = x0_pred.mul(std_tensor).add(mean_tensor)
-                    print(x0_pred.shape)
+                    log_print(f'x0_pred shape: {x0_pred.shape}', log_to_screen=diagnostic_logs)
                     div = diff.divergence(x0_pred, spectral=False)
 
                 loss_div = train_config['divergence_loss_weight'] * torch.mean(torch.abs(div))
@@ -415,7 +420,7 @@ def train(args):
             batch_grad_max = grad_max(model)
             
             # Store metrics for this iteration
-            if logging_config['log_to_wandb']:
+            if logging_config['log_to_wandb'] and device_ID == 0:
                 iter_metrics = {
                     "iteration": iteration,
                     "batch_loss": loss.item(),
@@ -433,6 +438,10 @@ def train(args):
             optimizer.step()
 
         mean_epoch_loss = np.mean(losses)
+        
+        # Synchronize all processes before saving checkpoints
+        if torch.distributed.is_initialized():
+            barrier(device_ids=[device_ID])
 
         # Adjust lr rate schedule if using
         if train_config["warmup"] and (epoch) < train_config["warmup_total_iters"]:
@@ -443,7 +452,7 @@ def train(args):
             elif train_config["scheduler"] == 'CosineAnnealingLR':
                 LRscheduler.step()
                 if (epoch) >= train_config['num_epochs']:
-                    print("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
+                    print("Terminating training after reaching max_epochs while LR scheduler is set to CosineAnnealingLR")
                     break
 
         # Save the model checkpoint
@@ -460,17 +469,17 @@ def train(args):
             if device_ID == 0:
                 torch.save(checkpoint, os.path.join(save_dir, train_config['best_ckpt_name']))
             
-        print('Finished epoch:{} | Loss (mean/current/best) : {:.2e}/{:.2e}/{:.2e}'.format(
-            epoch,
-            mean_epoch_loss, loss, best_loss
-        ))
+        # Show epoch progress 
+        log_print('Finished epoch:{} | Loss (mean/current/best) : {:.2e}/{:.2e}/{:.2e}'.format(
+            epoch, mean_epoch_loss, loss, best_loss
+        ), log_to_screen=True)
         # Save the model
         if device_ID == 0:
             # Save the model
             torch.save(checkpoint, os.path.join(save_dir,
                                                     train_config['ckpt_name']))
         
-        if logging_config['log_to_wandb']:
+        if logging_config['log_to_wandb'] and device_ID == 0:
             # First, log all the per-iteration metrics
             for i, metrics in enumerate(iteration_metrics):
                 wandb.log(metrics, step=metrics['iteration'])
@@ -486,9 +495,10 @@ def train(args):
             # Log epoch summary with a special step that won't conflict
             wandb.log(epoch_summary, step=iteration)
     
-    print('Training Completed ...')
+    # Show training completion 
+    log_print('Training Completed ...', log_to_screen=True)
 
-    if logging_config['log_to_wandb']:
+    if logging_config['log_to_wandb'] and device_ID == 0:
         wandb.finish()
     
 
@@ -505,4 +515,7 @@ if __name__ == '__main__':
         args.config_path = os.path.join(project_root, args.config_path)
     
     ddp_setup() # Initialize distributed training environment
-    train(args)
+    try:
+        train(args)
+    finally:
+        ddp_cleanup()  # Clean up distributed training environment

@@ -13,7 +13,7 @@ from torch.amp import autocast
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group, barrier, get_rank, get_world_size
+from torch.distributed import barrier
 
 # Add the project root directory to sys.path for proper imports
 # This ensures imports work regardless of whether script is run with python -m or torchrun
@@ -26,33 +26,31 @@ from scheduler.linear_noise_scheduler import LinearNoiseScheduler
 from scheduler.dpm_solver import NoiseScheduleVP, model_wrapper, DPM_Solver
 from dataset.dataloader import CustomMatDataset
 from eval.analysis.plots import save_image
+from tools.logging_utils import log_print
+from tools.distributed_data_parallel_utils import ddp_setup, ddp_cleanup
 
 if torch.cuda.is_available():
-    print("Number of GPUs available:", torch.cuda.device_count())
+    if int(os.environ.get("LOCAL_RANK", 0)) == 0:  # Only rank 0 prints
+        print("Number of GPUs available:", torch.cuda.device_count())
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device_ID = int(os.environ["LOCAL_RANK"])
-print("Device:", device, "  |  Device ID:", device_ID)
+if device_ID == 0:  # Only rank 0 prints
+    print("Device:", device, "  |  Device ID:", device_ID)
 
-def ddp_setup():
-   init_process_group(backend="nccl")
-   torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-def ddp_cleanup():
-    destroy_process_group()
-
-
-def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num):
+def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num):
     r"""
     Sample stepwise by going backward one timestep at a time.
     We save the x0 predictions
     """
 
-    GLOBAL_ = sample_config['global_seed']
-    print(f"Global seed set to: {GLOBAL_}")
+    log_to_screen = logging_config['log_to_screen']
+    diagnostic_logs = logging_config['diagnostic_logs']
+
     # -------- main-process seeding -------------------------------------------
+    GLOBAL_ = sample_config['global_seed']
     if GLOBAL_ is not None:
-        print(f"Setting global seed to {GLOBAL_}")
+        log_print(f"Setting global seed to {GLOBAL_}", log_to_screen=log_to_screen)
         random.seed(GLOBAL_)
         np.random.seed(GLOBAL_)
         torch.manual_seed(GLOBAL_)
@@ -82,15 +80,15 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             # Extract numeric file numbers from filenames
             file_numbers = [int(os.path.splitext(f)[0]) for f in npy_files]
             largest_file_number = max(file_numbers)
-            print(f"Data exists in the directory. Largest file number: {largest_file_number}")
+            log_print(f"Data exists in the directory. Largest file number: {largest_file_number}", log_to_screen=log_to_screen)
 
         else:
             largest_file_number = -1  # No files found
-            print("No .npy files found in the directory.")    
+            log_print("No .npy files found in the directory.", log_to_screen=log_to_screen)    
 
     # Check if all batches already exist
     if largest_file_number >= (sample_config['num_sample_batch']-1):
-        print(f"All {sample_config['num_sample_batch']} batches already exist. Exiting.")
+        log_print(f"All {sample_config['num_sample_batch']} batches already exist. Exiting.", log_to_screen=True)
         sys.exit(0)
 
     if diffusion_config['conditional']:
@@ -98,7 +96,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
 
         if npy_files:
             # If files exist, load the second-last one (avoiding errorsif last saved file is corrupted)
-            print(f"Loading last saved batch: {largest_file_number}")
+            log_print(f"Loading last saved batch: {largest_file_number}", log_to_screen=log_to_screen)
             largest_file_number -= 1
 
             idx_arr = [largest_file_number - step for step in range(0, dataset_config['num_prev_conditioning_steps'])]
@@ -119,7 +117,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             T, C, H, W = t0_tensor.shape
             batch_cond = t0_tensor[1:, ...].reshape(1, (T-1)*C, H, W) # [T-1, C, H, W] -> [1, (T-1)*C, H, W]
 
-            print('batch_cond shape: ', batch_cond.shape)
+            log_print(f'batch_cond shape: {batch_cond.shape}', log_to_screen=diagnostic_logs)
 
         batch_cond = batch_cond.float().to(device_ID)
     else:
@@ -138,7 +136,6 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
                 t_tensor = timesteps[i].to(device_ID)  # Get the current timestep tensor
-                # print('********** ', t_tensor, t_tensor.squeeze(0))
 
                 with autocast('cuda'):
                     # Get prediction of noise
@@ -186,17 +183,16 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                 dim=1
             )
 
-            # print('batch_cond subtracted shape: ',  batch_cond[:, :-C, :, :].shape)
-            # print('xt shape: ', xt.shape)
-            # print('batch_cond shape: ', batch_cond.shape)
-            
+            log_print(f'xt shape: {xt.shape}', log_to_screen=diagnostic_logs)
+            log_print(f'batch_cond shape: {batch_cond.shape}', log_to_screen=diagnostic_logs)
+
             xt_final = xt[:, :model_config['pred_channels'], :, :].detach()
         else:
             xt_final = xt.detach()
 
         # Synchronize all processes after sampling
         if torch.distributed.is_initialized():
-            barrier()
+            barrier(device_ids=[device_ID])
 
         if sample_config['save_data']:
             
@@ -208,7 +204,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             xt_cpu = xt_final.cpu()
 
             np.save(os.path.join(train_config['save_dir'], 'data', run_num, str(batch_count) + '.npy'), xt_cpu.numpy())
-            print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} to disk.")
+            log_print(f"Saved batch {batch_count}/{sample_config['num_sample_batch']-1} to disk.", log_to_screen=log_to_screen)
 
 
 def infer(args):
@@ -217,18 +213,26 @@ def infer(args):
         try:
             config = yaml.safe_load(file)
         except yaml.YAMLError as exc:
-            print(exc)
-    print(config)
-    ########################
+            log_to_screen(f"Error in configuration file: {exc}", Force=True)
+            return
     
+    # Extract logging config to control verbosity
     dataset_config = config['dataset_params']
     diffusion_config = config['diffusion_params']
     model_config = config['model_params']
     train_config = config['train_params']
     sample_config = config['sample_params']
+    logging_config = config['logging_params']
     run_num = args.run_num
+    
+    log_to_screen = logging_config['log_to_screen']
+    diagnostic_logs = logging_config['diagnostic_logs']
 
-    # Unconditional modeling haVe no conditioning channels
+    log_print('Configuration loaded successfully', log_to_screen=log_to_screen)
+    log_print(f'Full config: {config}', log_to_screen=diagnostic_logs)
+    ########################
+
+    # Unconditional modeling has no conditioning channels
     if not diffusion_config['conditional']:
         model_config['cond_channels'] = 0
     
@@ -248,16 +252,17 @@ def infer(args):
     # Make results path relative to project root
     train_config['save_dir'] = os.path.join(project_root, 'results', task_name)
 
+    print(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']))
+
     # Load weights/checkpoint if found
     if os.path.exists(os.path.join(train_config['save_dir'], train_config['best_ckpt_name'])):
-        print(f'Loading trained model from {os.path.join(train_config["save_dir"], train_config["best_ckpt_name"])}')
-        checkpoint = torch.load(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']), 
-                              map_location=f'cuda:{device_ID}', weights_only=False)
+        log_print(f'Loading trained model from {os.path.join(train_config["save_dir"], train_config["best_ckpt_name"])}', log_to_screen=log_to_screen)
+        checkpoint = torch.load(os.path.join(train_config['save_dir'], train_config['best_ckpt_name']), weights_only=False)
 
         # Load model
         model.load_state_dict(checkpoint['model_state'])
     else:
-        print(f"Checkpoint {train_config['best_ckpt_name']} not found in {train_config['save_dir']}. Exiting.")
+        log_print(f"Checkpoint {train_config['best_ckpt_name']} not found in {train_config['save_dir']}. Exiting.", log_to_screen=True)
         sys.exit(0)
 
     model.eval()
@@ -267,7 +272,7 @@ def infer(args):
                                      beta_start=diffusion_config['beta_start'],
                                      beta_end=diffusion_config['beta_end'])
     with torch.no_grad():
-        sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, run_num)
+        sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num)
 
 
 if __name__ == '__main__':
