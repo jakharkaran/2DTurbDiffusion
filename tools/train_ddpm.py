@@ -104,7 +104,7 @@ def train(args):
         # Turbulence dataset
         dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, conditional=diffusion_config['conditional'])
         turb_dataloader = DataLoader(dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4, pin_memory=True, \
-                                    generator=dl_gen, worker_init_fn=worker_init_fn, sampler=DistributedSampler(dataset)) # No shuffle for DistributedSampler
+                                    generator=dl_gen, worker_init_fn=worker_init_fn, sampler=DistributedSampler(dataset, shuffle=True)) # No shuffle for DistributedSampler
         
     # Ensuring 0 condtional channels if not conditional
     if not diffusion_config['conditional']:
@@ -227,7 +227,8 @@ def train(args):
         iteration_metrics = []
         
         # Set epoch for DistributedSampler to ensure proper data shuffling across epochs
-        if hasattr(turb_dataloader, 'sampler') and hasattr(turb_dataloader.sampler, 'set_epoch'):
+        if isinstance(turb_dataloader.sampler, DistributedSampler):
+            log_print(f'Setting epoch for DistributedSampler: {epoch_idx}', log_to_screen=diagnostic_logs)
             turb_dataloader.sampler.set_epoch(epoch_idx)
 
         for batch_data in tqdm(turb_dataloader):
