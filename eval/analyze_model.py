@@ -62,7 +62,7 @@ if long_analysis_config['data_type'] == 'emulator':
     model_config = emulator_config['model_params']
     train_config = emulator_config['train_params']
     logging_config = emulator_config['logging_params']
-    test_config = emulator_config['test_params']
+    sample_config = emulator_config['sample_params']
 
     # Prepare list of .npy files for analysis based on conditional/unconditional model
     files = []

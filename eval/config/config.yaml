@@ -4,7 +4,7 @@ system_params:
   system: 'Re500_fkx4fky4_r0.1_b20'
   Ngrid: 64
 
-root_dir: "/home/exouser/Documents/karan/2DTurbDiffusion_cnditional/results/cond0_step3_prev2_2500/"
+root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/UDM_Sampling/UDM_Corrd_s1_Oaw_lrR1e4_wd1e6/"
 # root_dir: "/home/exouser/Documents/karan/2DTurbDiffusion_cnditional/results/test_UDM/"
 # root_dir: '/home/exouser/Documents/karan/data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1' # provide IC num below
 save_dir:   # If empty same as root_dir
@@ -14,7 +14,7 @@ long_analysis_params:
 
 # For Truth
   data_type: 'emulator' # 'train', 'temulatorest', 'truth'
-  file_range: [0, 100]
+  file_range: [0, 2500]
 
   # Only used for train and truth
   step_size: 3 # Only used for train and truth
