@@ -2,11 +2,14 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import torch.distributed as dist
 
 def save_image(xt, time_step, train_config, sample_config, dataset_config, run_num, batch_count):
 
+    device_ID = dist.get_rank() if dist.is_initialized() else 0
+
     os.makedirs(os.path.join(train_config['save_dir'], 'samples'), exist_ok=True)
-    os.makedirs(os.path.join(train_config['save_dir'], 'samples', run_num), exist_ok=True)
+    os.makedirs(os.path.join(train_config['save_dir'], 'samples', str(run_num) + '_' + str(device_ID)), exist_ok=True)
 
     nrows = int(np.floor(np.sqrt(sample_config['sample_batch_size'])))
 
@@ -46,7 +49,7 @@ def save_image(xt, time_step, train_config, sample_config, dataset_config, run_n
             # Adjust spacing between subplots to avoid overlap
             figU.subplots_adjust(wspace=0.1, hspace=0.1)
 
-        figU.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_U{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+        figU.savefig(os.path.join(train_config['save_dir'], 'samples', str(run_num) + '_' + str(device_ID), f'{str(batch_count)}_U{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
         plt.close(figU) # Close the figure to free up memory
 
         if not 'mnist' in dataset_config['data_dir'].lower():
@@ -65,5 +68,5 @@ def save_image(xt, time_step, train_config, sample_config, dataset_config, run_n
                 # Adjust spacing between subplots to avoid overlap
                 figV.subplots_adjust(wspace=0.1, hspace=0.1)
 
-            figV.savefig(os.path.join(train_config['save_dir'], 'samples', run_num, f'{str(batch_count)}_V{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
+            figV.savefig(os.path.join(train_config['save_dir'], 'samples', str(run_num) + '_' + str(device_ID), f'{str(batch_count)}_V{time_step}.jpg'), format='jpg', bbox_inches='tight', pad_inches=0)
             plt.close(figV)
