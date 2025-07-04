@@ -1,7 +1,7 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool True # Control detailed print statements for debugging/monitoring
   diagnostic_logs: !!bool False # Log Diagnistic  to screen
-  log_to_wandb: !!bool False # True False
+  log_to_wandb: !!bool True # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: 'test'
   wandb_group: 'static'
@@ -48,7 +48,7 @@ model_params: # U-NET
 
 train_params:
   task_name: 'test'
-  batch_size: 16
+  effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
   num_epochs: 400
   optimizer: 'adamw' # 'adam' 'adamw'
   scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'

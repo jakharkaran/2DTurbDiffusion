@@ -18,6 +18,8 @@ import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import barrier
+import torch.distributed as dist
+
 
 # Add the project root directory to sys.path for proper imports
 # This ensures imports work regardless of whether script is run with python -m or torchrun
@@ -38,16 +40,19 @@ from tools.distributed_data_parallel_utils import ddp_setup, ddp_cleanup
 # from torchviz import make_dot
 # from torchinfo import summary
 
-# Initialize early - keep these prints as they are useful for setup verification
-if torch.cuda.is_available():
-    if int(os.environ.get("LOCAL_RANK", 0)) == 0:  # Only rank 0 prints
-        print("Number of GPUs available:", torch.cuda.device_count())
+ddp_setup() # Initialize distributed training environment
+
+# Get distributed info early
+if torch.distributed.is_initialized():
+    world_size = dist.get_world_size()
+    device_ID = dist.get_rank() # rank
+else:
+    world_size = 1
+    device_ID = 0
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device_ID = int(os.environ["LOCAL_RANK"])
 
-if device_ID == 0:  # Only rank 0 prints
-    print("Device:", device, "  |  Device ID:", device_ID)
+print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Device ID (Rank):", device_ID)
 
 def train(args):
     # Read the config file #
@@ -95,11 +100,20 @@ def train(args):
     dl_gen = torch.Generator().manual_seed(GLOBAL_SEED)
 
     # Initiate dataloader
+
+    # Validate effective batch size is evenly divisible by world size
+    if train_config['effective_batch_size'] % world_size != 0:
+        log_print(f"Warning: Effective batch size {train_config['effective_batch_size']} is not evenly divisible by world size {world_size}. "
+                 f"This may result in data loss. Consider adjusting effective_batch_size to be a multiple of {world_size}.", 
+                 log_to_screen=True)
+    train_config['batch_size'] = train_config['effective_batch_size'] // world_size  # Effective batch size divided by number of GPUs
+
     if 'mnist' in dataset_config['data_dir'].lower():
         # MNIST dataset for testing
         log_print('** Using MNIST dataset for testing **', log_to_screen=log_to_screen)
         mnist = MnistDataset('train', im_path=dataset_config['data_dir'])
-        turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=True, num_workers=4)
+        turb_dataloader = DataLoader(mnist, batch_size=train_config['batch_size'], shuffle=False, num_workers=4, 
+                                     sampler=DistributedSampler(mnist, shuffle=True))
     else:
         # Turbulence dataset
         dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, conditional=diffusion_config['conditional'])
@@ -146,11 +160,9 @@ def train(args):
             timesteps = [torch.tensor(i, device=device_ID).unsqueeze(0) for i in range(diffusion_config['num_timesteps'])]
 
     log_print(f'Saving config to: {save_dir}', log_to_screen=log_to_screen)
-    if not os.path.exists(save_dir):
+    if not os.path.exists(save_dir) and device_ID == 0:
         os.makedirs(save_dir, exist_ok=True)
-        if device_ID == 0:  # Only rank 0 copies config
-            shutil.copy(args.config_path, save_dir)
-
+        shutil.copy(args.config_path, save_dir)
 
     # Specify training parameters
     num_epochs = train_config['num_epochs']
@@ -262,7 +274,7 @@ def train(args):
                 bs_div = int(batch_size * div_ratio)
 
                 if bs_div == 0:
-                    print('Warning: No data for divergence loss batch. Setting to 1.')
+                    log_print('Warning: No data for divergence loss batch. Setting to 1.', log_to_screen=True)
                     bs_div=1
 
                 bs_mse = batch_size - bs_div
@@ -439,10 +451,10 @@ def train(args):
             optimizer.step()
 
         mean_epoch_loss = np.mean(losses)
-        
-        # Synchronize all processes before saving checkpoints
-        if torch.distributed.is_initialized():
-            barrier(device_ids=[device_ID])
+
+        mean_loss_tensor = torch.tensor(mean_epoch_loss, device=device_ID)
+        dist.all_reduce(mean_loss_tensor, op=dist.ReduceOp.AVG)
+        global_mean_epoch_loss = mean_loss_tensor.item()
 
         # Adjust lr rate schedule if using
         if train_config["warmup"] and (epoch) < train_config["warmup_total_iters"]:
@@ -452,28 +464,28 @@ def train(args):
                 LRscheduler.step(mean_epoch_loss)
             elif train_config["scheduler"] == 'CosineAnnealingLR':
                 LRscheduler.step()
-                if (epoch) >= train_config['num_epochs']:
-                    print("Terminating training after reaching max_epochs while LR scheduler is set to CosineAnnealingLR")
-                    break
+
+        # Synchronize all processes before saving checkpoints
+        if torch.distributed.is_initialized():
+            barrier(device_ids=[device_ID])
 
         # Save the model checkpoint
         checkpoint = {
             'epoch': epoch,
             'model_state': model.state_dict(),
             'optimizer_state': optimizer.state_dict(),
-            'best_loss': min(best_loss, mean_epoch_loss),  # Use the actual best loss
+            'best_loss': min(best_loss, global_mean_epoch_loss),  # Use the actual best loss
             'iteration': iteration
         }
 
-        if best_loss > mean_epoch_loss:
-            best_loss = mean_epoch_loss
+        if best_loss > global_mean_epoch_loss:
+            best_loss = global_mean_epoch_loss
             if device_ID == 0:
                 torch.save(checkpoint, os.path.join(save_dir, train_config['best_ckpt_name']))
             
         # Show epoch progress 
-        log_print('Finished epoch:{} | Loss (mean/current/best) : {:.2e}/{:.2e}/{:.2e}'.format(
-            epoch, mean_epoch_loss, loss, best_loss
-        ), log_to_screen=True)
+        log_print('Finished epoch:{} | Loss (mean/best) : {:.2e}/{:.2e}'.format(
+            epoch, global_mean_epoch_loss, best_loss), log_to_screen=True)
         # Save the model
         if device_ID == 0:
             # Save the model
@@ -487,7 +499,7 @@ def train(args):
     
             # Then log the epoch summary
             epoch_summary = {
-                "epoch": epoch_idx,
+                "epoch": epoch,
                 "epoch_loss": mean_epoch_loss,
                 "epoch_loss_best": best_loss,
                 "lr": optimizer.param_groups[0]['lr'],
@@ -515,7 +527,6 @@ if __name__ == '__main__':
     if not os.path.isabs(args.config_path):
         args.config_path = os.path.join(project_root, args.config_path)
     
-    ddp_setup() # Initialize distributed training environment
     try:
         train(args)
     finally:

@@ -31,11 +31,6 @@ from tools.logging_utils import log_print
 from tools.distributed_data_parallel_utils import ddp_setup, ddp_cleanup
 
 ddp_setup() # Initialize distributed sampling environment
-if torch.cuda.is_available():
-    if int(os.environ.get("LOCAL_RANK", 0)) == 0:  # Only rank 0 prints
-        print("Number of GPUs available:", torch.cuda.device_count())
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Get distributed info early
 if torch.distributed.is_initialized():
@@ -44,7 +39,8 @@ if torch.distributed.is_initialized():
 else:
     world_size = 1
     device_ID = 0
-
+    
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Device ID (Rank):", device_ID)
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num):
@@ -109,7 +105,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             largest_file_number -= 1
 
             idx_arr = [largest_file_number - step for step in range(0, dataset_config['num_prev_conditioning_steps'])]
-            data_tensor_list = [np.load(os.path.join(train_config['save_dir'], 'data', run_num, f'{idx}.npy')) for idx in idx_arr] 
+            data_tensor_list = [np.load(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'{idx}.npy')) for idx in idx_arr]
             # Each list in data_tensor_list has shape (B, C, H, W)
 
             # Concatenate each list along the channel dimension
@@ -232,7 +228,7 @@ def infer(args):
         try:
             config = yaml.safe_load(file)
         except yaml.YAMLError as exc:
-            log_to_screen(f"Error in configuration file: {exc}", Force=True)
+            print(f"Error in configuration file: {exc}")
             return
     
     # Extract logging config to control verbosity
