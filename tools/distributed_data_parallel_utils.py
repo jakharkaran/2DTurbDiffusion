@@ -4,7 +4,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 def ddp_setup():
     # Set the device first, then initialize process group
-    local_rank = int(os.environ["LOCAL_RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"]) # Environment variable provided by torchrun
     torch.cuda.set_device(local_rank)
     
     # Verify device is set correctly

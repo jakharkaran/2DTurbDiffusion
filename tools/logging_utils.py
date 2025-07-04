@@ -6,7 +6,7 @@ import os
 def get_rank():
     """Get the current process rank."""
     try:
-        return int(os.environ.get("LOCAL_RANK", 0))
+        return int(os.environ.get("LOCAL_RANK", 0)) # Envirnment variable provided by torchrun
     except:
         return 0
 
