@@ -51,12 +51,21 @@ train_params:
   effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
   num_epochs: 400
   optimizer: 'adamw' # 'adam' 'adamw'
-  scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
+  scheduler: null # 'CosineAnnealingLR' 'CosineAnnealingWarmRestarts' 'ReduceLROnPlateau'
   lr: 1e-4
-  lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
+  lr_min: 1e-6 # Minimum learning rate # CosineAnnealingLR CosineAnnealingWarmRestarts ReduceLROnPlateau
+  # CosineAnnealingWarmRestarts
+  T_0: 200 # Number of epochs until the first restart # 
+  T_mult: 1 # Multiplicative factor for the number of iterations between restarts # CosineAnnealingWarmRestarts
+  # ReduceLROnPlateau
+  factor : 0.5 # factor for reducing learning rate
+  patience : 20 # patience for reducing learning rate
+  cooldown : 10 # cooldown for reducing learning rate
+
   warmup: !!bool False # Warmup for LR scheduler (Start with low LR and then increase)
   warmup_start_factor: 0.001 
   warmup_total_iters: 5 # Warm-up learning rate for the first N epochs
+
   weight_decay: 1e-6 # L2 regularization Loss
   clip_grad_norm: null # 1.0 # Gradient clipping to avoid exploding gradients, null for no clipping
   loss: 'noise' # sample noise 

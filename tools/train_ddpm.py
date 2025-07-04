@@ -174,11 +174,13 @@ def train(args):
 
     # Set learning rate scheduluer
     if train_config["scheduler"] == 'ReduceLROnPlateau':
-        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=10, cooldown=10, mode='min', min_lr=float(train_config['lr_min']))
+        LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=int(train_config['factor']), patience=int(train_config['patience']), cooldown=int(train_config['cooldown']), mode='min', min_lr=float(train_config['lr_min']))
     elif train_config["scheduler"] == 'CosineAnnealingLR':
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(train_config["num_epochs"]), eta_min=float(train_config['lr_min']))
+    elif train_config["scheduler"] == 'CosineAnnealingWarmRestarts':
+        LRscheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(train_config["T_0"]), T_mult=int(train_config["T_mult"]), eta_min=float(train_config['lr_min']))
     else:
-       LRscheduler = None
+        LRscheduler = None
 
     # Warm up epochs if using
     if train_config['warmup']:
@@ -462,7 +464,7 @@ def train(args):
         else:
             if train_config["scheduler"] == 'ReduceLROnPlateau':
                 LRscheduler.step(mean_epoch_loss)
-            elif train_config["scheduler"] == 'CosineAnnealingLR':
+            elif train_config["scheduler"] in ['CosineAnnealingLR', 'CosineAnnealingWarmRestarts']:
                 LRscheduler.step()
 
         # Synchronize all processes before saving checkpoints
