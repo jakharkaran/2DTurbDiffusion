@@ -5,38 +5,69 @@ import scipy
 
 from torch.utils.data import Dataset
 
+from tools.logging_utils import log_print
+
 from py2d.initialize import initialize_wavenumbers_rfft2
 from py2d.convert import Omega2Psi, Psi2UV, UV2Omega
 from py2d.filter import filter2D
 
 class CustomMatDataset(Dataset):
-    def __init__(self, dataset_config, train_config, test_config, get_UV=True, get_Psi=False, get_Omega=False):
+    def __init__(self, dataset_config, train_config, sample_config, logging_config, get_UV=True, get_Psi=False, get_Omega=False, training=True, conditional=False):
         """
         Args:
             data_dir (str): Directory with all the .mat files.
             file_range (tuple): Range of file numbers (start, end).
+
+        Returns:
+            data_tensor (torch.Tensor): Data loaded from the .mat file.
+            If unconditional T=1; if conditional, returns data from the previous time steps as well [shape: (B, T, C, H, W)]
+            B: batch size
+            T: time steps (numerical/autoregressive): t, t-1, t-2, ... t-k
+            C: channels: U, V, Psi, Omega
+            H: height of the grid
+            W: width of the grid
         """
+
+        # conditional parameters
+        self.condition_step_size = dataset_config['condition_step_size'] 
+        self.conditional = conditional
+        self.num_prev_conditioning_steps = dataset_config['num_prev_conditioning_steps']  # number of previous time steps to condition on
+
         self.data_dir = dataset_config['data_dir']
         self.file_range = dataset_config['file_range']
-        self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
         self.step_size = dataset_config['step_size']
+
+        if training:
+            self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
+        else:
+            # For sampling cnditional diffusion model
+            self.file_sample_start_idx = sample_config['sample_file_start_idx']
+            self.file_numbers = range(self.file_sample_start_idx, (self.file_sample_start_idx + self.step_size*self.condition_step_size*self.num_prev_conditioning_steps) + 1)
+
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
         self.downsample_factor = dataset_config['downsample_factor']
         self.downsample_procedure = dataset_config['downsample_procedure']
         self.normalize = dataset_config['normalize']
+
+        # model collapse parameters
         self.model_collapse = train_config['model_collapse']
 
         self.get_UV = get_UV
         self.get_Psi = get_Psi
         self.get_Omega = get_Omega
 
+        # Logging parameters
+        self.log_to_screen = logging_config['log_to_screen']
+        self.diagnostic_logs = logging_config['diagnostic_logs']
+
+        #### Model Collapse
         if train_config['model_collapse']:
 
             self.model_collapse_gen = train_config['model_collapse_gen']
             self.model_collapse_type = train_config['model_collapse_type']
 
-            self.file_batch_size = test_config['batch_size']
+            self.file_batch_size = sample_config['batch_size']
             filenum1 = 0
             filenum2 = len(self.file_list_data)//self.file_batch_size - 1
             self.file_numbers = range(filenum1, filenum2 + 1)
@@ -50,7 +81,7 @@ class CustomMatDataset(Dataset):
                     data_dir_last_gen = data_dir_first_gen + '_' + self.model_collapse_type + '_' + str(self.model_collapse_gen-1)
 
                 self.file_list_model_collapse = [os.path.join(data_dir_last_gen, 'data/1/', f"{i}.npy") for i in self.file_numbers]
-                print('** filenum **', filenum1, filenum2)
+                log_print(f'** filenum ** {filenum1} {filenum2}', log_to_screen=self.log_to_screen)
 
             elif self.model_collapse_type == 'all_gen':
                 # Build a unified file list
@@ -65,24 +96,30 @@ class CustomMatDataset(Dataset):
                     self.file_list_model_collapse.extend(files)
 
 
-            print('************************** length of file list - Model Collapse:', len(self.file_list_model_collapse), ' files', len(self.file_list_model_collapse)*self.file_batch_size, ' files')
+            log_print(f'************************** length of file list - Model Collapse: {len(self.file_list_model_collapse)} files {len(self.file_list_model_collapse)*self.file_batch_size} files', log_to_screen=self.log_to_screen)
 
-        print('************************** length of file list:', len(self.file_list_data))
+        log_print(f'************************** length of file list: {len(self.file_list_data)}', log_to_screen=self.log_to_screen)
 
     def __len__(self):
 
         if self.model_collapse:
             if self.model_collapse_type == 'last_gen':
                 # Return the total number of files in the model collapse
-                return len(self.file_list_model_collapse) * self.file_batch_size
+                base_len = len(self.file_list_model_collapse) * self.file_batch_size
             elif self.model_collapse_type == 'all_gen':
                 # Return the total number of files in the model collapse
                 # This includes both the original .mat files and the .npy files
                 # from all generations.
-                return len(self.file_list_data) + len(self.file_list_model_collapse) * self.file_batch_size
+                base_len = len(self.file_list_data) + len(self.file_list_model_collapse) * self.file_batch_size
         else:
             # Return the total number of files in the dataset
-            return len(self.file_list_data)
+            base_len = len(self.file_list_data)
+
+        if self.conditional:
+             base_len -= (self.condition_step_size * self.num_prev_conditioning_steps)  # need t‑k, ... t-2, t-1 for every t
+             return base_len
+        else:
+             return base_len
 
     def __getitem__(self, idx):
         """
@@ -90,12 +127,32 @@ class CustomMatDataset(Dataset):
             idx (int): Index of the file (snapshot) to load.
             
         Returns:
-            torch.Tensor: Data loaded from the .mat file.
+            torch.Tensor: Data loaded from the .mat file. [shape: (C, H, W)]
+            If conditional, returns data from the previous time step as well.
+            Shape: ([t, t, t-1, t-1],C, H, W) == [T, C, H, W] t:current, t-1:previous temporal timestep
         """
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        Omega, Psi, U, V = None, None, None, None
+        if self.conditional:
+            # idx_arr = [idx + step * self.condition_step_size for step in range(0, self.num_prev_conditioning_steps+1)]
+            # data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
+            # data_tensor = torch.cat(data_tensor_list, dim=0)
+
+            idx_arr = [idx + step * self.condition_step_size for step in reversed(range(0, self.num_prev_conditioning_steps+1))]
+            data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
+            data_tensor = torch.stack(data_tensor_list, dim=0)  # shape: (T, C, H, W) T: t, t-1, t-2, ...
+            log_print(f'idx: {idx_arr}', log_to_screen=self.diagnostic_logs)
+        else:
+            data_tensor = self.load_data_single_step(idx)
+            data_tensor = data_tensor.unsqueeze(0)  # shape: (1, C, H, W)
+
+        log_print(f'data_tensor shape: {data_tensor.shape}', log_to_screen=self.diagnostic_logs)
+        return data_tensor
+
+    def load_data_single_step(self, idx):
+
+        Omega, Psi, U, V = None, None, None, None 
 
         # Loading correct index of files from .mat or .npy files (model_collapse)
         if not self.model_collapse:
@@ -228,10 +285,10 @@ class CustomMatDataset(Dataset):
             std_tensor = torch.tensor(std).reshape(std.shape[0], 1, 1)
             data_tensor_normalized = (data_tensor - mean_tensor) / std_tensor
 
-            return data_tensor_normalized
+            return data_tensor_normalized # shape: [C, H, W]
         else:
-            # print(data_tensor.shape)
-            return data_tensor
+            log_print(f'Data loader data tensor shape: {data_tensor.shape}', log_to_screen=self.diagnostic_logs)
+            return data_tensor.unsqueeze(0) # shape: [C, H, W]
 
     def downsample_array(self, arr, x_factor, y_factor):
         """

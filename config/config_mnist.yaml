@@ -1,16 +1,15 @@
 logging_params: # Logging for Weights and biases
-  log_to_screen: !!bool True # Control detailed print statements for debugging/monitoring
-  diagnostic_logs: !!bool False # Log Diagnistic  to screen
+  log_to_screen: !!bool False # not set-up - can be setup for logging to screen
+  diagnostic_logs: !!bool False # not set-up
   log_to_wandb: !!bool True # True False
   wandb_table_logging_interval: 10 # not setup
-  wandb_project: 'test'
+  wandb_project: 'minst'
   wandb_group: 'static'
-  wandb_name: 'test'
+  wandb_name: 'minst_periodic'
 
 dataset_params:
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
-  # data_dir: 'data_mnist/train/images'
-  data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
+  data_dir: 'data_mnist/train/images'
   
   file_range: [5000, 7500] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
@@ -30,13 +29,13 @@ diffusion_params:
 
 model_params: # U-NET
   padding_mode: 'circular' # Padding of conv2d layers. 'zeros': standard non-periodic UNET; 'circular': periodic UNET (maybe need coord_conv=True for UDM )
-  im_channels : 2 # 2 when conditional=False
-  pred_channels: 2 # =im_channels for conditional=False; 
-  cond_channels: 2 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
-  coord_conv: !!bool True # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
+  im_channels : 1 # 2 when conditional=False
+  pred_channels: 1 # =im_channels for conditional=False; 
+  cond_channels: 0 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
+  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
   # input_channels = im_channels + cond_channels (if conditional) + 2 (if coord_conv)
   # Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
-  im_size : 64
+  im_size : 28
   down_channels : [32, 64, 128, 256]
   mid_channels : [256, 256, 128]
   down_sample : [True, True, False]
@@ -47,25 +46,16 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'test'
-  effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
+  task_name: 'minst_periodic'
+  batch_size: 64
   num_epochs: 400
   optimizer: 'adamw' # 'adam' 'adamw'
-  scheduler: null # 'CosineAnnealingLR' 'CosineAnnealingWarmRestarts' 'ReduceLROnPlateau'
+  scheduler: null # 'CosineAnnealingLR' 'ReduceLROnPlateau'
   lr: 1e-4
-  lr_min: 1e-6 # Minimum learning rate # CosineAnnealingLR CosineAnnealingWarmRestarts ReduceLROnPlateau
-  # CosineAnnealingWarmRestarts
-  T_0: 200 # Number of epochs until the first restart # 
-  T_mult: 1 # Multiplicative factor for the number of iterations between restarts # CosineAnnealingWarmRestarts
-  # ReduceLROnPlateau
-  factor : 0.5 # factor for reducing learning rate
-  patience : 20 # patience for reducing learning rate
-  cooldown : 10 # cooldown for reducing learning rate
-
+  lr_min: 1e-6 # Minimum learning rate for CosineAnnealingLR
   warmup: !!bool False # Warmup for LR scheduler (Start with low LR and then increase)
   warmup_start_factor: 0.001 
   warmup_total_iters: 5 # Warm-up learning rate for the first N epochs
-
   weight_decay: 1e-6 # L2 regularization Loss
   clip_grad_norm: null # 1.0 # Gradient clipping to avoid exploding gradients, null for no clipping
   loss: 'noise' # sample noise 
@@ -86,6 +76,7 @@ train_params:
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
 
+
 # For Sampling (Inference)
 sample_params:
   global_seed: null # Global seed for reproducibility; If null, it will be random seed - It should be null to produce different samples for each ensemble
@@ -97,8 +88,8 @@ sample_params:
   dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
-  sample_batch_size : 32 # Inference data batch size
-  num_sample_batch : 100 # number of samples = sample_batch_size * num_sample_batch
+  sample_batch_size : 64 # Inference data batch size
+  num_sample_batch : 10 # number of samples = sample_batch_size * num_sample_batch
   sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
   save_image: !!bool True # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data # First five batches will always be saved

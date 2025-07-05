@@ -27,9 +27,14 @@ class LinearNoiseScheduler:
         original_shape = original.shape
         batch_size = original_shape[0]
         
+        # if batch_size > 1:
         sqrt_alpha_cum_prod = self.sqrt_alpha_cum_prod.to(original.device)[t].reshape(batch_size)
         sqrt_one_minus_alpha_cum_prod = self.sqrt_one_minus_alpha_cum_prod.to(original.device)[t].reshape(batch_size)
-        
+
+        # else:
+        #     sqrt_alpha_cum_prod = self.sqrt_alpha_cum_prod.to(original.device)[t]
+        #     sqrt_one_minus_alpha_cum_prod = self.sqrt_one_minus_alpha_cum_prod.to(original.device)[t]
+
         # Reshape till (B,) becomes (B,1,1,1) if image is (B,C,H,W)
         for _ in range(len(original_shape) - 1):
             sqrt_alpha_cum_prod = sqrt_alpha_cum_prod.unsqueeze(-1)
@@ -39,6 +44,21 @@ class LinearNoiseScheduler:
         # Apply and Return Forward process equation
         return (sqrt_alpha_cum_prod.to(original.device) * original
                 + sqrt_one_minus_alpha_cum_prod.to(original.device) * noise)
+    
+
+    def add_noise_partial(self, original, noise, t, n_cond=2):
+        r"""
+        Add noise to the image but not the conditions
+        :param original: Image on which noise is to be applied with conditions
+        :param noise: Random Noise Tensor (from normal dist)
+        :param t: timestep of the forward process of shape -> (B,)
+        :param n_cond: number of conditions
+        :return:
+        """
+        x_pred, x_cond = original[:, :n_cond], original[:, n_cond:]
+        noisy_pred = self.add_noise(x_pred, noise[:, :n_cond], t)
+
+        return torch.cat([noisy_pred, x_cond], dim=1).to(original.device)
         
     def sample_prev_timestep(self, xt, noise_pred, t):
         r"""
@@ -69,6 +89,22 @@ class LinearNoiseScheduler:
             # sigma = variance ** 0.5
             # z = torch.randn(xt.shape).to(xt.device)
             return mean + sigma * z, x0
+        
+    def sample_prev_timestep_partial(self, xt, noise_pred, t, n_cond=2):
+        r"""
+            Use the noise prediction by model to get
+            xt-1 using xt and the noise predicted
+        :param xt: current timestep sample
+        :param noise_pred: model noise prediction
+        :param t: current timestep we are at
+        :param n_cond: number of conditions
+        :return:
+        """
+        x_pred, x_cond = xt[:, :n_cond], xt[:, n_cond:]
+        # xt1, _ = self.sample_prev_timestep(x_pred, noise_pred[:, :n_cond], t.squeeze(0))
+        xt1, _ = self.sample_prev_timestep(x_pred, noise_pred, t.squeeze(0))
+
+        return torch.cat([xt1, x_cond], dim=1).to(xt.device)
         
     def sample_prev_timestep_image_from_x0(self, xt, x0, t):
         r"""
