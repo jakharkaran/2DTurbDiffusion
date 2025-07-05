@@ -4,20 +4,21 @@ system_params:
   system: 'Re500_fkx4fky4_r0.1_b20'
   Ngrid: 64
 
-# root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/UDM_s1_Oaw_lrC1e4_wd1e6_a100/"
+root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/UDM_MultiGPU2/UDM_s3_Oaw_lrC1e4_wd1e6_e800/"
 # root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/test_UDM/"
-root_dir: '/home/exouser/karan/data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1' # provide IC num below
-save_dir: 'results/train_step3_67500_75000/'  # If empty same as root_dir
+# root_dir: '/home/exouser/karan/data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1' # provide IC num below
+# save_dir: 'results/train_step3_355000_362500/'  # If empty same as root_dir
+save_dir:
 
 long_analysis_params:
 
 # For Truth
-  data_type: 'train' # 'train', 'emulator', 'truth'
-  file_range: [67500,75000]
+  data_type: 'emulator' # 'train', 'emulator', 'truth'
+  file_range: [0,500]
 
   # Only used for train and truth
-  step_size: 3 # Only used for train and truth
-  IC_num: [1] # Only used for truth data - it will analyze single or multiple ICs
+  step_size: 3 # Use every nth step for analysis (e.g., 3 means every 3rd step)
+  IC_num: [1] # Only used for truth/train - it will analyze single or multiple ICs
 
   # Only used for emulator data when conditional=True
   ensemble_num: 1 #  - It will only analyze the data of ingle ensemble in apartocular folder.
@@ -28,13 +29,24 @@ long_analysis_params:
   zonal_eof_pc: !!bool True
   eof_ncomp: 3
   PC_autocorr_nlags: 300 # Number of lags (Emulator timesteps) for autocorrelation  # Ensure training/truth data is longer than this (3 times?)
+
   div: !!bool True
+  energy: !!bool True
+  enstrophy: !!bool True
+
   extreme: !!bool True
   extreme_anomaly: !!bool True # This requires calclation of temporal_mean
   extreme_block: !!bool True 
-  num_remove_boundary: 0 # Number of boundary points to remove for extreme analysis
+  num_remove_boundary: 0 # Check for bugs? Number of boundary points to remove for extreme analysis 
+  
+  zonal_U: !!bool True # Save zonal mean U at each time step
+  zonal_V: !!bool True # Save zonal mean V at each time step
+  zonal_Omega: !!bool True # Save zonal mean Omega at each time step
+
   PDF_U: !!bool True # This may need large memory to compute
   PDF_V: !!bool True # This may need large memory to compute
   PDF_Omega: !!bool True # This may need large memory to compute
+  PDF_data_ratio: 1 # Ratio of data to use for PDF analysis (0.1 means 10% of the data will be used)
+  
   video: !!bool False
   video_length: 300

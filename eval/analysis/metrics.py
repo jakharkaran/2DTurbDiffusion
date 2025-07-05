@@ -77,7 +77,7 @@ def PDF_compute(data, bw_factor=1):
     bin_min = -bin_max
     bins = np.linspace(bin_min, bin_max, 100)
 
-    print('PDF Clculation')
+    print('PDF Calculation')
     print('bin min', bin_min)
     print('bin max', bin_max)
     print('data Shape', data_arr.shape)

@@ -147,7 +147,7 @@ def eval(config):
     spectra_U_arr, spectra_V_arr, spectra_Omega_arr = [], [], []
 
     U_arr, V_arr, Omega_arr = [], [], []
-    div_arr = []
+    div_arr, energy_arr, enstrophy_arr = [], [], []
 
     U_min_arr, U_max_arr, V_min_arr, V_max_arr, Omega_min_arr, Omega_max_arr  = [], [], [], [], [], []
     U_min_ind_arr, U_max_ind_arr, V_min_ind_arr, V_max_ind_arr, Omega_min_ind_arr, Omega_max_ind_arr = [], [], [], [], [], []
@@ -195,8 +195,8 @@ def eval(config):
             V_mean_single += V
             Omega_mean_single += Omega
 
-
-        if long_analysis_config["zonal_mean"] or long_analysis_config["zonal_eof_pc"]:
+        if long_analysis_config["zonal_mean"] or long_analysis_config["zonal_eof_pc"] or \
+              long_analysis_config["zonal_U"] or long_analysis_config["zonal_V"] or long_analysis_config["zonal_Omega"]:
             U_zonal_mean_arr.append(np.mean(U, axis=1))
             V_zonal_mean_arr.append(np.mean(V, axis=1))
             Omega_zonal_mean_arr.append(np.mean(Omega, axis=1))
@@ -238,7 +238,13 @@ def eval(config):
             div_temp = divergence(U, V)
             div_arr.append(np.mean(np.abs(div_temp)))
 
+        if long_analysis_config["energy"]:
+            energy_temp = np.mean(0.5 * (U**2 + V**2))
+            energy_arr.append(energy_temp)
 
+        if long_analysis_config["enstrophy"]:
+            enstrophy_temp = 0.5 * np.mean(Omega**2)
+            enstrophy_arr.append(enstrophy_temp)
 
         if long_analysis_config["extreme"]:
 
@@ -319,14 +325,18 @@ def eval(config):
                 Omega_max_4Delta_anom_arr.append(Omega_anom_box_4Delta.max()), Omega_max_4Delta_anom_ind_arr.append(Omega_anom_box_4Delta.argmax())
                 Omega_min_4Delta_anom_arr.append(Omega_anom_box_4Delta.min()), Omega_min_4Delta_anom_ind_arr.append(Omega_anom_box_4Delta.argmin())
 
+        # Subsampling data for PDF analysis
+        PDF_num_samples = min(Ngrid**2, int(long_analysis_config["PDF_data_ratio"] * (Ngrid ** 2)))
+        PDF_indices = np.random.choice(Ngrid ** 2, PDF_num_samples, replace=False)
+
         if long_analysis_config["PDF_U"]:
-            U_arr.append(U.flatten())
+            U_arr.append(U.flatten()[PDF_indices])
 
         if long_analysis_config["PDF_V"]:
-            V_arr.append(V.flatten())
+            V_arr.append(V.flatten()[PDF_indices])
 
         if long_analysis_config["PDF_Omega"]:
-            Omega_arr.append(Omega.flatten())
+            Omega_arr.append(Omega.flatten()[PDF_indices])
 
     print('Total snapshots analyzed:', total_files_analyzed)
 
@@ -412,6 +422,21 @@ def eval(config):
                     Omega_eofs=EOF_Omega, Omega_PC=PC_Omega, Omega_expvar=exp_var_Omega, Omega_pc_acf=PC_acf_Omega)
             
             print("Zonal EOFs and PCs saved.")
+
+    if long_analysis_config["zonal_U"]:
+        np.savez(os.path.join(save_dir, 'zonal_U.npz'),
+                U_zonal=np.asarray(U_zonal_mean_arr))
+        print("Zonal U saved.")
+
+    if long_analysis_config["zonal_V"]:
+        np.savez(os.path.join(save_dir, 'zonal_V.npz'),
+                V_zonal=np.asarray(V_zonal_mean_arr))
+        print("Zonal V saved.")
+
+    if long_analysis_config["zonal_Omega"]:
+        np.savez(os.path.join(save_dir, 'zonal_Omega.npz'),
+                Omega_zonal=np.asarray(Omega_zonal_mean_arr))
+        print("Zonal Omega saved.")
             
     if long_analysis_config["extreme"]:
         np.savez(os.path.join(save_dir, 'extremes.npz'),\
@@ -443,6 +468,16 @@ def eval(config):
         np.savez(os.path.join(save_dir, 'div.npz'),
                     div=np.asarray(div_arr))
         print("Divergence saved.")
+
+    if long_analysis_config["energy"]:
+        np.savez(os.path.join(save_dir, 'energy.npz'),
+                    energy=np.asarray(energy_arr))
+        print("Energy saved.")
+    
+    if long_analysis_config["enstrophy"]:
+        np.savez(os.path.join(save_dir, 'enstrophy.npz'),
+                    enstrophy=np.asarray(enstrophy_arr))
+        print("Enstrophy saved.")
 
     if long_analysis_config["PDF_U"]:
         U_mean, U_std, U_pdf, U_bins, bw_scott = PDF_compute(np.asarray(U_arr))
@@ -489,7 +524,14 @@ if config['long_analysis_params']['extreme_anomaly'] == True:
     config['long_analysis_params']['zonal_mean'] = False
     config['long_analysis_params']['zonal_eof_pc'] = False
     config['long_analysis_params']['spectra'] = False
+    config['long_analysis_params']['div'] = False
+    config['long_analysis_params']['energy'] = False
+    config['long_analysis_params']['enstrophy'] = False
     config['long_analysis_params']['extreme'] = False
+    config['long_analysis_params']['zonal_U'] = False
+    config['long_analysis_params']['zonal_V'] = False
+    config['long_analysis_params']['zonal_Omega'] = False
+    config['long_analysis_params']['extreme_block'] = False
     config['long_analysis_params']['PDF_U'] = False
     config['long_analysis_params']['PDF_V'] = False
     config['long_analysis_params']['PDF_Omega'] = False
