@@ -15,6 +15,10 @@ __pycache__
 
 # Ignore checkpoints
 *.pth
+*.pt
 
 # Ignore pickle files
 *.pkl
+
+# Ignore log files
+*.out
