@@ -4,25 +4,23 @@ system_params:
   system: 'Re500_fkx4fky4_r0.1_b20'
   Ngrid: 64
 
-root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/UDM_Sampling/UDM_Corrd_s1_Oaw_lrR1e4_wd1e6/"
-# root_dir: "/home/exouser/Documents/karan/2DTurbDiffusion_cnditional/results/test_UDM/"
-# root_dir: '/home/exouser/Documents/karan/data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1' # provide IC num below
-save_dir:   # If empty same as root_dir
-
+# root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/UDM_s1_Oaw_lrC1e4_wd1e6_a100/"
+# root_dir: "/home/exouser/karan/2DTurbDiffusion_cnditional/results/test_UDM/"
+root_dir: '/home/exouser/karan/data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1' # provide IC num below
+save_dir: 'results/train_step3_67500_75000/'  # If empty same as root_dir
 
 long_analysis_params:
 
 # For Truth
-  data_type: 'emulator' # 'train', 'temulatorest', 'truth'
-  file_range: [0, 2500]
+  data_type: 'train' # 'train', 'emulator', 'truth'
+  file_range: [67500,75000]
 
   # Only used for train and truth
   step_size: 3 # Only used for train and truth
   IC_num: [1] # Only used for truth data - it will analyze single or multiple ICs
 
-
   # Only used for emulator data when conditional=True
-  enemble_num: 1 #  - It will only analyze the data of ingle ensemble in apartocular folder.
+  ensemble_num: 1 #  - It will only analyze the data of ingle ensemble in apartocular folder.
 
   temporal_mean: !!bool True
   zonal_mean: !!bool True
@@ -32,7 +30,7 @@ long_analysis_params:
   PC_autocorr_nlags: 300 # Number of lags (Emulator timesteps) for autocorrelation  # Ensure training/truth data is longer than this (3 times?)
   div: !!bool True
   extreme: !!bool True
-  extreme_anomaly: !!bool False # This requires calclation of temporal_mean
+  extreme_anomaly: !!bool True # This requires calclation of temporal_mean
   extreme_block: !!bool True 
   num_remove_boundary: 0 # Number of boundary points to remove for extreme analysis
   PDF_U: !!bool True # This may need large memory to compute
@@ -40,4 +38,3 @@ long_analysis_params:
   PDF_Omega: !!bool True # This may need large memory to compute
   video: !!bool False
   video_length: 300
-
