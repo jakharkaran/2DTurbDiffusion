@@ -54,9 +54,9 @@ def eval(config):
         # Prepare list of .npy files for analysis based on conditional/unconditional model
         files = []
         if diffusion_config['conditional']:
-            # Conditional: go to subfolder with name diffusion_config['ensemble_num'] under 'data'
-            
-            ensemble_dir = os.path.join(root_dir, 'data', str(long_analysis_config['ensemble_num']))
+            # Conditional: go to subfolder with name diffusion_config['ensemble_name'] under 'data'
+
+            ensemble_dir = os.path.join(root_dir, 'data', str(long_analysis_config['ensemble_name']))
             if not os.path.exists(ensemble_dir):
                 raise FileNotFoundError(f"Ensemble directory {ensemble_dir} does not exist")
             npy_files = [f for f in os.listdir(ensemble_dir) if f.endswith('.npy')]
@@ -76,7 +76,7 @@ def eval(config):
                 npy_files = [os.path.join(dirpath, f) for f in filenames if f.endswith('.npy')]
                 if npy_files:
                     files.extend(npy_files)
-
+            print(files)
             print(f"Looking for files in {data_dir} for unconditional model")
 
     else:
@@ -130,13 +130,11 @@ def eval(config):
         save_dir = root_dir
 
     if long_analysis_config['data_type'] == 'emulator' and diffusion_config['conditional']:
-        save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'], str(long_analysis_config['ensemble_num']))
+        save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'], str(long_analysis_config['ensemble_name']))
     else:
         save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'])
     os.makedirs(save_dir, exist_ok=True)
     print(f"Save directory: {save_dir}")
-
-
 
     num_remove_boundary = long_analysis_config['num_remove_boundary']
     U_mean_single, V_mean_single, Omega_mean_single = np.zeros((Ngrid-2*num_remove_boundary, Ngrid-2*num_remove_boundary)), np.zeros((Ngrid-2*num_remove_boundary, Ngrid-2*num_remove_boundary)), np.zeros((Ngrid-2*num_remove_boundary, Ngrid-2*num_remove_boundary))
@@ -165,7 +163,8 @@ def eval(config):
 
     if long_analysis_config["extreme_anomaly"]:
         try:
-            data = data = np.load(os.path.join(save_dir, 'temporal_mean.npz'))
+            print("Loading climatology data for extreme anomaly computation...")
+            data = np.load(os.path.join(save_dir, 'temporal_mean.npz'))
             U_sample_mean_climatology = data['U_sample_mean']
             V_sample_mean_climatology = data['V_sample_mean']
             Omega_sample_mean_climatology = data['Omega_sample_mean']
@@ -297,7 +296,7 @@ def eval(config):
             Omega_max_anom_arr.append(Omega_anom.max()), Omega_max_anom_ind_arr.append(Omega_anom.argmax())
             Omega_min_anom_arr.append(Omega_anom.min()), Omega_min_anom_ind_arr.append(Omega_anom.argmin())
 
-            if long_analysis_config["extreme_block"]:
+            if long_analysis_config["extreme_anomaly_block"]:
 
                 Delta2 = 2 * Lx / Ngrid
                 Delta4 = 4 * Lx / Ngrid
@@ -457,7 +456,7 @@ def eval(config):
                     U_max_ind_arr=U_max_anom_ind_arr, U_min_ind_arr=U_min_anom_ind_arr, V_max_ind_arr=V_max_anom_ind_arr, V_min_ind_arr=V_min_anom_ind_arr, Omega_max_ind_arr=Omega_max_anom_ind_arr, Omega_min_ind_arr=Omega_min_anom_ind_arr)
         print("Extreme anomalies saved.")
 
-        if long_analysis_config["extreme_block"]:
+        if long_analysis_config["extreme_anomaly_block"]:
             np.savez(os.path.join(save_dir, 'extremes_anom_block.npz'),\
             U_max_2Delta_arr=U_max_2Delta_anom_arr, U_min_2Delta_arr=U_min_2Delta_anom_arr, V_max_2Delta_arr=V_max_2Delta_anom_arr, V_min_2Delta_arr=V_min_2Delta_anom_arr, Omega_max_2Delta_arr=Omega_max_2Delta_anom_arr, Omega_min_2Delta_arr=Omega_min_2Delta_anom_arr,\
             U_max_4Delta_arr=U_max_4Delta_anom_arr, U_min_4Delta_arr=U_min_4Delta_anom_arr, V_max_4Delta_arr=V_max_4Delta_anom_arr, V_min_4Delta_arr=V_min_4Delta_anom_arr, Omega_max_4Delta_arr=Omega_max_4Delta_anom_arr, Omega_min_4Delta_arr=Omega_min_4Delta_anom_arr,\
@@ -512,30 +511,60 @@ with open(args.config_path, 'r') as file:
         print("Error in configuration file:", exc)
         sys.exit(1)
 
-if config['long_analysis_params']['extreme_anomaly'] == True:
-    # compute without extreme_anomaly first
-    config['long_analysis_params']['extreme_anomaly'] = False
-    print("Running analysis without extreme anomaly first...")
-    eval(config)
+def should_run_basic_analysis(config):
+    """Check if any basic analysis (non-extreme-anomaly) should be run."""
+    params = config['long_analysis_params']
+    basic_analyses = [
+        'temporal_mean', 'zonal_mean', 'zonal_eof_pc', 'spectra', 
+        'div', 'energy', 'enstrophy', 
+        'extreme', 'extreme_block', 
+        'zonal_U', 'zonal_V', 'zonal_Omega',
+        'PDF_U', 'PDF_V', 'PDF_Omega'
+    ]
+    return any(params.get(param, False) for param in basic_analyses)
 
-    # then compute with extreme_anomaly
-    config['long_analysis_params']['extreme_anomaly'] = True
-    config['long_analysis_params']['temporal_mean'] = False
-    config['long_analysis_params']['zonal_mean'] = False
-    config['long_analysis_params']['zonal_eof_pc'] = False
-    config['long_analysis_params']['spectra'] = False
-    config['long_analysis_params']['div'] = False
-    config['long_analysis_params']['energy'] = False
-    config['long_analysis_params']['enstrophy'] = False
-    config['long_analysis_params']['extreme'] = False
-    config['long_analysis_params']['zonal_U'] = False
-    config['long_analysis_params']['zonal_V'] = False
-    config['long_analysis_params']['zonal_Omega'] = False
-    config['long_analysis_params']['extreme_block'] = False
-    config['long_analysis_params']['PDF_U'] = False
-    config['long_analysis_params']['PDF_V'] = False
-    config['long_analysis_params']['PDF_Omega'] = False
+def create_extreme_anomaly_only_config(config):
+    """Create a config for extreme anomaly analysis only."""
+    config_copy = config.copy()
+    params = config_copy['long_analysis_params']
+    
+    # Enable only extreme anomaly analyses
+    params['extreme_anomaly'] = True
+    params['extreme_anomaly_block'] = True
+    
+    # Disable all other analyses
+    other_analyses = [
+        'temporal_mean', 'zonal_mean', 'zonal_eof_pc', 'spectra', 
+        'div', 'energy', 'enstrophy', 
+        'extreme', 'extreme_block', 
+        'zonal_U', 'zonal_V', 'zonal_Omega',
+        'PDF_U', 'PDF_V', 'PDF_Omega'
+    ]
+    for param in other_analyses:
+        params[param] = False
+        
+    return config_copy
+
+def create_basic_analysis_config(config):
+    """Create a config for basic analysis (no extreme anomaly)."""
+    config_copy = config.copy()
+    params = config_copy['long_analysis_params']
+    params['extreme_anomaly'] = False
+    params['extreme_anomaly_block'] = False
+    return config_copy
+
+if config['long_analysis_params']['extreme_anomaly']:
+    # Run basic analysis first (needed for climatology)
+    if should_run_basic_analysis(config):
+        print("Running analysis without extreme anomaly first...")
+        basic_config = create_basic_analysis_config(config)
+        eval(basic_config)
+    else:
+        print("No basic analysis to run before extreme anomaly analysis.")
+    
+    # Then run extreme anomaly analysis
     print("Running analysis with extreme anomaly...")
-    eval(config)
+    extreme_config = create_extreme_anomaly_only_config(config)
+    eval(extreme_config)
 else:
     eval(config)
