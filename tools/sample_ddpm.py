@@ -137,10 +137,10 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                         model_config['im_size'])).float().to(device_ID)
         
         if sample_config['sampler'] == 'ddpm':
+
             for i in tqdm(reversed(range(diffusion_config['num_timesteps']))):
 
                 t_tensor = timesteps[i].to(device_ID)  # Get the current timestep tensor
-
                 with autocast('cuda'):
                     # Get prediction of noise
                     noise_pred = model(xt, t_tensor, cond=batch_cond)
@@ -148,11 +148,12 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                     # Use scheduler to get x0 and xt-1
                     xt, _ = scheduler.sample_prev_timestep(xt, noise_pred, t_tensor.squeeze(0))
 
-        elif sample_config['sampler'] in ['dpm-solver', 'dpm-solver++']:
+        elif sample_config['sampler'] in ['dpmsolver', 'dpmsolver++']:
 
             # Continuous-time noise schedule built from *existing* betas
-            ns = NoiseScheduleVP('discrete', 
-                                  alphas_cumprod=scheduler.alpha_cum_prod)  # :contentReference[oaicite:0]{index=0}
+            # ns = NoiseScheduleVP('discrete', 
+            #                       alphas_cumprod=scheduler.alpha_cum_prod) 
+            ns = NoiseScheduleVP('discrete', betas=scheduler.betas) 
  
             # Wrap the UNet so that it accepts *continuous* t ∈ (0, 1]
             model_kwargs = dict(cond=batch_cond)
@@ -162,17 +163,18 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                                       model_kwargs  = model_kwargs,
                                       guidance_type = sample_config['dpm_guidance'],)              
              
-            dpm_solver = DPM_Solver(model_fn, ns, algorithm_type="dpmsolver++")
+            dpm_solver = DPM_Solver(model_fn, ns, algorithm_type=sample_config['sampler'])
 
             xt = dpm_solver.sample(xt,
-                                    steps      = sample_config['dpm_steps'],
-                                    t_start    = 1.0,                  # corresponds to DDPM t = num_timesteps-1
-                                    t_end      = 1.0 / ns.total_N,     # ≈1e-3
-                                    order      = sample_config['dpm_order'],
-                                    method     = sample_config['dpm_method'],
-                                    skip_type  = sample_config['dpm_skip'],)
+                                    steps              = sample_config['dpm_steps'],
+                                    t_start            = 1.0,              # Corresponds to DDPM t=num_timesteps-1
+                                    t_end              = 1.0 / ns.total_N, # ~1e-3
+                                    order              = sample_config['dpm_order'],
+                                    method             = sample_config['dpm_method'],
+                                    skip_type          = sample_config['dpm_skip'],
+                                    denoise_to_zero    = True,
+                                    lower_order_final  = True)
 
-                
         if sample_config['save_image'] or file_number < 5:
             diffusion_timestep = 0
             save_image(xt, diffusion_timestep, train_config, sample_config, dataset_config, run_num, file_number)
@@ -243,7 +245,7 @@ def infer(args):
     log_to_screen = logging_config['log_to_screen']
     diagnostic_logs = logging_config['diagnostic_logs']
 
-    log_print('Configuration loaded successfully', log_to_screen=log_to_screen)
+    log_print('Configuration loaded successfully: ', log_to_screen=log_to_screen)
     log_print(f'Full config: {config}', log_to_screen=diagnostic_logs)
     ########################
 

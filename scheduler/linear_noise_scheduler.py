@@ -1,4 +1,4 @@
-import torch
+import torch, os, sys
 
 
 class LinearNoiseScheduler:
@@ -15,6 +15,13 @@ class LinearNoiseScheduler:
         self.alpha_cum_prod = torch.cumprod(self.alphas, dim=0) # cummulative product of alphas
         self.sqrt_alpha_cum_prod = torch.sqrt(self.alpha_cum_prod)
         self.sqrt_one_minus_alpha_cum_prod = torch.sqrt(1 - self.alpha_cum_prod)
+
+        # print('betas', self.betas)
+        # print('alphas', self.alphas)
+        # print('alpha_cum_prod', self.alpha_cum_prod)
+        # print('sqrt_alpha_cum_prod', self.sqrt_alpha_cum_prod)
+        # print('sqrt_one_minus_alpha_cum_prod', self.sqrt_one_minus_alpha_cum_prod)
+        # sys.exit()
         
     def add_noise(self, original, noise, t):
         r"""

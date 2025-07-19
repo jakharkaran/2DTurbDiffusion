@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-import math
+import math, sys
 
 
 class NoiseScheduleVP:
@@ -105,6 +105,12 @@ class NoiseScheduleVP:
             self.log_alpha_array = self.numerical_clip_alpha(log_alphas).reshape((1, -1,)).to(dtype=dtype)
             self.total_N = self.log_alpha_array.shape[1]
             self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1)).to(dtype=dtype)
+
+            # print('T', self.T)
+            # print('total_N', self.total_N)
+            # print('log_alpha_array', self.log_alpha_array)
+            # print('t_array', self.t_array)
+            # sys.exit()
         else:
             self.T = 1.
             self.total_N = 1000
@@ -281,6 +287,7 @@ def model_wrapper(
 
     def noise_pred_fn(x, t_continuous, cond=None):
         t_input = get_model_input_time(t_continuous)
+        # print(t_input)
         if cond is None:
             output = model(x, t_input, **model_kwargs)
         else:
