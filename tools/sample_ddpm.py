@@ -9,6 +9,7 @@ from tqdm import tqdm
 import random
 
 from torch.amp import autocast
+from torch.utils.data import DataLoader
 
 import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
@@ -115,13 +116,25 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             # sys.exit()
 
         else:
-            # Initiate dataloader
-            seed_dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, training=False, conditional=True)
-            t0_tensor = seed_dataset[0] # [T, C, H, W]
+            # # Initiate dataloader
+            # seed_dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, training=False, conditional=True)
+            # t0_tensor = seed_dataset[0] # [T, C, H, W]
 
-            T, C, H, W = t0_tensor.shape
-            batch_cond = t0_tensor[1:, ...].reshape(1, (T-1)*C, H, W) # [T-1, C, H, W] -> [1, (T-1)*C, H, W]
+            # T, C, H, W = t0_tensor.shape
+            # batch_cond = t0_tensor[1:, ...].reshape(1, (T-1)*C, H, W) # [T-1, C, H, W] -> [1, (T-1)*C, H, W]
 
+            # Turbulence dataset
+            dataset = CustomMatDataset(dataset_config, train_config, sample_config, logging_config, training=False, conditional=diffusion_config['conditional'])
+            turb_dataloader = DataLoader(dataset, batch_size=sample_config['sample_batch_size'], shuffle=False, num_workers=4, pin_memory=True, \
+                                        sampler=DistributedSampler(dataset, shuffle=True)) # No shuffle for DistributedSampler
+            
+            # Get one batch from the dataloader
+            batch_data = next(iter(turb_dataloader))
+            B, T, C, H, W = batch_data.shape # [B, T, C, H, W]; T: t, t-1, t-2, ...; C: U, V
+            # Split batch_data along T dimension
+            # batch_im = batch_data[:, 0, ...]      # [B, C, H, W] (first T)
+            # [B, T-1, C, H, W] (remaining T), Stack T-1 and C into channel dimension -> [B, (T-1)*C, H, W]
+            batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)   
             log_print(f'batch_cond shape: {batch_cond.shape}', log_to_screen=diagnostic_logs)
 
         batch_cond = batch_cond.float().to(device_ID)

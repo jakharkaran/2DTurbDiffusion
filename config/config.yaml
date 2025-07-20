@@ -1,11 +1,11 @@
 logging_params: # Logging for Weights and biases
   log_to_screen: !!bool True # Control detailed print statements for debugging/monitoring
   diagnostic_logs: !!bool False # Log Diagnistic  to screen
-  log_to_wandb: !!bool True # True False
+  log_to_wandb: !!bool False # True False
   wandb_table_logging_interval: 10 # not setup
   wandb_project: 'test'
   wandb_group: 'static'
-  wandb_name: 'test'
+  wandb_name: 'CDM_test'
 
 dataset_params:
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
@@ -22,7 +22,7 @@ dataset_params:
   normalize: !!bool True
 
 diffusion_params:
-  conditional: !!bool False # True False
+  conditional: !!bool True # True False
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
@@ -33,7 +33,7 @@ model_params: # U-NET
   im_channels : 2 # 2 when conditional=False
   pred_channels: 2 # =im_channels for conditional=False; 
   cond_channels: 2 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
-  coord_conv: !!bool True # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
+  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
   # input_channels = im_channels + cond_channels (if conditional) + 2 (if coord_conv)
   # Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
   im_size : 64
@@ -47,7 +47,7 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'test'
+  task_name: 'CDM_test2'
   effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
   num_epochs: 400
   optimizer: 'adamw' # 'adam' 'adamw'
@@ -90,17 +90,16 @@ train_params:
 sample_params:
   global_seed: null # Global seed for reproducibility; If null, it will be random seed - It should be null to produce different samples for each ensemble
 
-  sampler: 'dpmsolver'   # ddpm ddim dpmsolver dpmsolver++ # Sampling method
+  sampler: 'ddpm'   # ddpm ddim dpmsolver dpmsolver++ # Sampling method
   dpm_steps: 1000           # ↓ = faster, ↑ = better quality
   dpm_order: 1               # '1' '2' '3'  (3 recommended for unconditional; 1: equivalent to DDIM)
   dpm_method: "singlestep"  # 'singlestep' 'multistep' 'adaptive'
   dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
-  sample_batch_size : 32        # Inference data batch size
-  num_sample_batch : 2       # number of samples = sample_batch_size * num_sample_batch
-  sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling
-  sample_file_batch_step : 100 # the initial file index will be sample_file_start_idx + sample_file_batch_step * i for i in range(num_sample_batch)
-  sample_file_start_idx_file_range: [5000, 7500] # the initial condition for sampling will be randomly taken from this range
+  sample_batch_size : 4        # Inference data batch size
+  num_sample_batch : 20       # number of samples = sample_batch_size * num_sample_batch
+  # sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling 
+  sample_start_idx_file_range: [5000, 5004] # the initial condition for sampling will be randomly taken from this range
   save_image: !!bool True       # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data # First five batches will always be saved
