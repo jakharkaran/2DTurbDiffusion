@@ -37,12 +37,16 @@ ddp_setup() # Initialize distributed sampling environment
 if torch.distributed.is_initialized():
     world_size = dist.get_world_size()
     device_ID = dist.get_rank() # rank
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    node_rank = int(os.environ.get('NODE_RANK', 0)) if 'NODE_RANK' in os.environ else device_ID // torch.cuda.device_count()
 else:
     world_size = 1
     device_ID = 0
+    local_rank = 0
+    node_rank = 0
     
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Device ID (Rank):", device_ID)
+print(f"Device: {device} | Node: {node_rank} | Device ID (Global Rank): {device_ID} | Local Rank: {local_rank} | World Size (# GPUs): {world_size} | ")
 
 def sample_turb(model, scheduler, train_config, sample_config, model_config, diffusion_config, dataset_config, logging_config, run_num):
     r"""

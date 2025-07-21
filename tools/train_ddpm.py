@@ -45,14 +45,18 @@ ddp_setup() # Initialize distributed training environment
 # Get distributed info early
 if torch.distributed.is_initialized():
     world_size = dist.get_world_size()
-    device_ID = dist.get_rank() # rank
+    device_ID = dist.get_rank() # global rank across all nodes/processes
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    node_rank = int(os.environ.get('NODE_RANK', 0)) if 'NODE_RANK' in os.environ else device_ID // torch.cuda.device_count()
 else:
     world_size = 1
     device_ID = 0
+    local_rank = 0
+    node_rank = 0
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-print(f"Device:", device, "  |  World size (# GPUs):", world_size, "  |  Device ID (Rank):", device_ID)
+print(f"Device: {device} | Node: {node_rank} | Device ID (Global Rank): {device_ID} | Local Rank: {local_rank} | World Size: {world_size} | ")
 
 def train(args):
     # Read the config file #

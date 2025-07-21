@@ -33,20 +33,24 @@ class CustomMatDataset(Dataset):
             self.condition_step_size = dataset_config['condition_step_size'] 
             self.conditional = conditional
             self.num_prev_conditioning_steps = dataset_config['num_prev_conditioning_steps']  # number of previous time steps to condition on
-            self.sampling_file_range = sample_config['sample_start_idx_file_range']  # range of files to sample initial conditions from during sampling
 
         self.data_dir = dataset_config['data_dir']
         self.file_range = dataset_config['file_range']
         self.step_size = dataset_config['step_size']
 
         if training:
-            self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
+            self.file_range = dataset_config['file_range']
+
         else:
+            # For sampling cnditional diffusion model
+            self.file_range = sample_config['sample_start_idx_file_range']  # range of files to sample initial conditions from during sampling
+
             # only for sampling cnditional diffusion model
-            self.file_numbers = range(self.sampling_file_range[0], self.sampling_file_range[1] + 1, self.step_size)  # include only every step_size-th file
             # # For sampling cnditional diffusion model
             # self.file_sample_start_idx = sample_config['sample_file_start_idx']
             # self.file_numbers = range(self.file_sample_start_idx, (self.file_sample_start_idx + self.step_size*self.condition_step_size*self.num_prev_conditioning_steps) + 1)
+
+        self.file_numbers = range(self.file_range[0], self.file_range[1] + 1)
 
         files_data = [os.path.join(self.data_dir, 'data', f"{i}.mat") for i in self.file_numbers if (self.file_range[0]-i) % self.step_size == 0]  # include only every step_size-th file
         self.file_list_data = files_data
