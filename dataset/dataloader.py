@@ -29,9 +29,9 @@ class CustomMatDataset(Dataset):
         """
 
         # conditional parameters
+        self.conditional = conditional
         if conditional:
             self.condition_step_size = dataset_config['condition_step_size'] 
-            self.conditional = conditional
             self.num_prev_conditioning_steps = dataset_config['num_prev_conditioning_steps']  # number of previous time steps to condition on
 
         self.data_dir = dataset_config['data_dir']
