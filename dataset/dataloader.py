@@ -37,6 +37,7 @@ class CustomMatDataset(Dataset):
         self.data_dir = dataset_config['data_dir']
         self.file_range = dataset_config['file_range']
         self.step_size = dataset_config['step_size']
+        self.training = training
 
         if training:
             self.file_range = dataset_config['file_range']
@@ -156,7 +157,13 @@ class CustomMatDataset(Dataset):
             data_tensor = data_tensor.unsqueeze(0)  # shape: (1, C, H, W)
 
         log_print(f'data_tensor shape: {data_tensor.shape}', log_to_screen=self.diagnostic_logs)
-        return data_tensor
+
+        if self.training:
+            return data_tensor
+        else:
+            # For sampling cnditional diffusion model
+            # Return the data tensor and the index
+            return data_tensor, idx, self.file_list_data[idx]
 
     def load_data_single_step(self, idx):
 

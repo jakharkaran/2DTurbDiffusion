@@ -133,13 +133,17 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                                         sampler=DistributedSampler(dataset, shuffle=True)) # No shuffle for DistributedSampler
             
             # Get one batch from the dataloader
-            batch_data = next(iter(turb_dataloader))
+            batch_data, batch_idx, batch_file_list = next(iter(turb_dataloader))
             B, T, C, H, W = batch_data.shape # [B, T, C, H, W]; T: t, t-1, t-2, ...; C: U, V
             # Split batch_data along T dimension
             # batch_im = batch_data[:, 0, ...]      # [B, C, H, W] (first T)
             # [B, T-1, C, H, W] (remaining T), Stack T-1 and C into channel dimension -> [B, (T-1)*C, H, W]
             batch_cond = batch_data[:, 1:, ...].reshape(B, (T-1) * C, H, W)   
             log_print(f'batch_cond shape: {batch_cond.shape}', log_to_screen=diagnostic_logs)
+            log_print(f'IC batch_idx : {batch_idx}', log_to_screen=diagnostic_logs)
+
+            # Save the initial condition for sampling
+            np.save(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'IC_index.npy'), batch_idx, batch_file_list)
 
         batch_cond = batch_cond.float().to(device_ID)
     else:
