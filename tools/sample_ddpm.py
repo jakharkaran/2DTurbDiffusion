@@ -217,9 +217,9 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
         else:
             xt_final = xt.detach()
 
-        # Synchronize all processes after sampling
-        if torch.distributed.is_initialized():
-            barrier(device_ids=[device_ID])
+        # # Synchronize all processes after sampling
+        # if torch.distributed.is_initialized():
+        #     barrier(device_ids=[device_ID])
 
         if sample_config['save_data']:
             
@@ -235,14 +235,14 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             np.save(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'{file_number}.npy'), xt_cpu.numpy())
             log_print(f"Saved file {file_number} ({xt_cpu.shape[0]} samples)", log_to_screen=log_to_screen, print_all_devices='all')
 
-        # Barrier to ensure all ranks complete this round before moving to next
-        if torch.distributed.is_initialized():
-            barrier(device_ids=[device_ID])
+        # # Barrier to ensure all ranks complete this round before moving to next
+        # if torch.distributed.is_initialized():
+        #     barrier(device_ids=[device_ID])
 
     # Final synchronization to ensure all ranks complete before finishing
-    if torch.distributed.is_initialized():
-        barrier(device_ids=[device_ID])
-        log_print(f"All ranks completed. Generated files up to {file_number}", log_to_screen=log_to_screen, print_all_devices='all')
+    # if torch.distributed.is_initialized():
+    #     barrier(device_ids=[device_ID])
+    #     log_print(f"All ranks completed. Generated files up to {file_number}", log_to_screen=log_to_screen, print_all_devices='all')
 
 
 def infer(args):
