@@ -143,7 +143,7 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
             log_print(f'IC batch_idx : {batch_idx}', log_to_screen=diagnostic_logs)
 
             # Save the initial condition for sampling
-            np.save(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'IC_index.npy'), batch_idx, batch_file_list)
+            np.savez(os.path.join(train_config['save_dir'], 'data', run_num + '_' + str(device_ID), f'IC_index.npz'), batch_idx=batch_idx, batch_file_list=batch_file_list)
 
         batch_cond = batch_cond.float().to(device_ID)
     else:
