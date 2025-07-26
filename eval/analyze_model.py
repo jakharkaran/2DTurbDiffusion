@@ -14,7 +14,7 @@ from py2d.filter import filter2D
 from analysis.io_utils import frame_generator, remove_boundaries
 from analysis.metrics import divergence, PDF_compute, manual_eof
 
-def eval(config):
+def eval_long_analysis(config):
 
     long_analysis_config = config['long_analysis_params']
     system_config = config['system_params']
@@ -53,7 +53,7 @@ def eval(config):
 
         # Prepare list of .npy files for analysis based on conditional/unconditional model
         files = []
-        if diffusion_config['conditional']:
+        if diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
             # Conditional: go to subfolder with name diffusion_config['ensemble_name'] under 'data'
 
             ensemble_dir = os.path.join(root_dir, 'data', str(long_analysis_config['ensemble_name']))
@@ -76,8 +76,8 @@ def eval(config):
                 npy_files = [os.path.join(dirpath, f) for f in filenames if f.endswith('.npy')]
                 if npy_files:
                     files.extend(npy_files)
-            print(files)
-            print(f"Looking for files in {data_dir} for unconditional model")
+            # print(files)
+            print(f"Looking for files in {data_dir}, Found {len(files)} files")
 
     else:
         step_size = long_analysis_config['step_size']
@@ -129,7 +129,7 @@ def eval(config):
     if not save_dir:
         save_dir = root_dir
 
-    if long_analysis_config['data_type'] == 'emulator' and diffusion_config['conditional']:
+    if long_analysis_config['data_type'] == 'emulator' and diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
         save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'], str(long_analysis_config['ensemble_name']))
     else:
         save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'])
@@ -161,7 +161,7 @@ def eval(config):
     U_max_4Delta_anom_arr, U_min_4Delta_anom_arr, V_max_4Delta_anom_arr, V_min_4Delta_anom_arr, Omega_max_4Delta_anom_arr, Omega_min_4Delta_anom_arr = [], [], [], [], [], []
     U_max_4Delta_anom_ind_arr, U_min_4Delta_anom_ind_arr, V_max_4Delta_anom_ind_arr, V_min_4Delta_anom_ind_arr, Omega_max_4Delta_anom_ind_arr, Omega_min_4Delta_anom_ind_arr = [], [], [], [], [], []
 
-    if long_analysis_config["extreme_anomaly"]:
+    if long_analysis_config["extreme_anomaly"] or long_analysis_config["extreme_anomaly_block"]:
         try:
             print("Loading climatology data for extreme anomaly computation...")
             data = np.load(os.path.join(save_dir, 'temporal_mean.npz'))
@@ -170,6 +170,19 @@ def eval(config):
             Omega_sample_mean_climatology = data['Omega_sample_mean']
         except FileNotFoundError:
             print("No climatology data found, can't compute extreme anomaly.")
+
+
+    if long_analysis_config["zonal_eof_pc"] > 0:
+        try:
+            print("Loading zonal climatology data for PCs of EOF computation...")
+            data = np.load(os.path.join(save_dir, 'zonal_mean.npz'))
+            print(data.keys())
+            U_zonal_mean_climatology = data['U_zonal_mean']
+            # V_zonal_mean_climatology = data['V_zonal_mean']
+            Omega_zonal_mean_climatology = data['Omega_zonal_mean']
+            print(U_zonal_mean_climatology.shape, Omega_zonal_mean_climatology.shape)
+        except FileNotFoundError:
+            print("No zonal climatology data found, can't compute PC of EOFs.")
 
     frame_gen = frame_generator(files,  long_analysis_config['data_type'], Kx, Ky, invKsq)
 
@@ -381,46 +394,45 @@ def eval(config):
         print(f"Angular averaged spectra U shape: {spectra_U_angular_avg.shape}, V shape: {spectra_V_angular_avg.shape}, Omega shape: {spectra_Omega_angular_avg.shape}")
         print(f"Zonal averaged spectra U shape: {spectra_U_zonal_avg.shape}, V shape: {spectra_V_zonal_avg.shape}, Omega shape: {spectra_Omega_zonal_avg.shape}")
 
-    if long_analysis_config["zonal_mean"] or long_analysis_config["zonal_eof_pc"]:
+    if long_analysis_config["zonal_mean"]:
 
         U_zonal_mean = np.mean(U_zonal_mean_arr, axis=0)
         V_zonal_mean = np.mean(V_zonal_mean_arr, axis=0)
         Omega_zonal_mean = np.mean(Omega_zonal_mean_arr, axis=0)
 
-        if long_analysis_config["zonal_mean"]:
-            np.savez(os.path.join(save_dir, 'zonal_mean.npz'),
-                    U_zonal_mean=U_zonal_mean,
-                    V_zonal_mean=V_zonal_mean,
-                    Omega_zonal_mean=Omega_zonal_mean)
-            print("Zonal mean saved.")
-            print(f"U zonal mean shape: {U_zonal_mean.shape}, V zonal mean shape: {V_zonal_mean.shape}, Omega zonal mean shape: {Omega_zonal_mean.shape}")
+        np.savez(os.path.join(save_dir, 'zonal_mean.npz'),
+                U_zonal_mean=U_zonal_mean,
+                V_zonal_mean=V_zonal_mean,
+                Omega_zonal_mean=Omega_zonal_mean)
+        print("Zonal mean saved.")
+        print(f"U zonal mean shape: {U_zonal_mean.shape}, V zonal mean shape: {V_zonal_mean.shape}, Omega zonal mean shape: {Omega_zonal_mean.shape}")
 
 
-        if long_analysis_config["zonal_eof_pc"]:
+    if long_analysis_config["zonal_eof_pc"]:
 
-            n_lags = long_analysis_config["PC_autocorr_nlags"]
+        n_lags = long_analysis_config["PC_autocorr_nlags"]
 
-            U_zonal_anom = np.asarray(U_zonal_mean_arr) - U_zonal_mean
-            EOF_U, PC_U, exp_var_U = manual_eof(U_zonal_anom, long_analysis_config["eof_ncomp"])
+        U_zonal_anom = np.asarray(U_zonal_mean_arr) - U_zonal_mean_climatology
+        EOF_U, PC_U, exp_var_U = manual_eof(U_zonal_anom, long_analysis_config["eof_ncomp"])
 
-            PC_acf_U= []
-            for i in range(long_analysis_config["eof_ncomp"]):
-                acf_i, confint_i = acf(PC_U[:, i], nlags=n_lags, alpha=0.5)
-                PC_acf_U.append({"acf": acf_i, "confint": confint_i})
+        PC_acf_U= []
+        for i in range(long_analysis_config["eof_ncomp"]):
+            acf_i, confint_i = acf(PC_U[:, i], nlags=n_lags, alpha=0.5)
+            PC_acf_U.append({"acf": acf_i, "confint": confint_i})
 
-            Omega_zonal_anom = np.array(Omega_zonal_mean_arr) - Omega_zonal_mean
-            EOF_Omega, PC_Omega, exp_var_Omega = manual_eof(Omega_zonal_anom, long_analysis_config["eof_ncomp"])
+        Omega_zonal_anom = np.array(Omega_zonal_mean_arr) - Omega_zonal_mean_climatology
+        EOF_Omega, PC_Omega, exp_var_Omega = manual_eof(Omega_zonal_anom, long_analysis_config["eof_ncomp"])
 
-            PC_acf_Omega = []
-            for i in range(long_analysis_config["eof_ncomp"]):
-                acf_i, confint_i = acf(PC_Omega[:, i], nlags=n_lags, alpha=0.5)
-                PC_acf_Omega.append({"acf": acf_i, "confint": confint_i})
+        PC_acf_Omega = []
+        for i in range(long_analysis_config["eof_ncomp"]):
+            acf_i, confint_i = acf(PC_Omega[:, i], nlags=n_lags, alpha=0.5)
+            PC_acf_Omega.append({"acf": acf_i, "confint": confint_i})
 
-            np.savez(os.path.join(save_dir, 'zonal_eof_pc.npz'),
-                    U_eofs=EOF_U, U_pc=PC_U, U_expvar=exp_var_U, U_pc_acf=PC_acf_U, 
-                    Omega_eofs=EOF_Omega, Omega_PC=PC_Omega, Omega_expvar=exp_var_Omega, Omega_pc_acf=PC_acf_Omega)
-            
-            print("Zonal EOFs and PCs saved.")
+        np.savez(os.path.join(save_dir, 'zonal_eof_pc.npz'),
+                U_eofs=EOF_U, U_pc=PC_U, U_expvar=exp_var_U, U_pc_acf=PC_acf_U, 
+                Omega_eofs=EOF_Omega, Omega_PC=PC_Omega, Omega_expvar=exp_var_Omega, Omega_pc_acf=PC_acf_Omega)
+        
+        print("Zonal EOFs and PCs saved.")
 
     if long_analysis_config["zonal_U"]:
         np.savez(os.path.join(save_dir, 'zonal_U.npz'),
@@ -496,26 +508,31 @@ def eval(config):
                 Omega_mean=Omega_mean, Omega_std=Omega_std, Omega_pdf=Omega_pdf, Omega_bins=Omega_bins, bw_scott=bw_scott)
         print("PDF Omega saved.")
 
+def check_run_long_analysis(config):
+    """Check if long analysis should be run."""
+    params = config['long_analysis_params']
+    long_analysis = [
+        'temporal_mean', 'zonal_mean', 'zonal_eof_pc', 'spectra',
+        'div', 'energy', 'enstrophy',
+        'extreme', 'extreme_block', 'extreme_anomaly', 'extreme_anomaly_block',
+        'zonal_U', 'zonal_V', 'zonal_Omega',
+        'PDF_U', 'PDF_V', 'PDF_Omega'
+    ]
+    return any(params.get(param, False) for param in long_analysis)
 
+def check_run_short_analysis(config):
+    """Check if short analysis should be run."""
+    params = config['short_analysis_params']
+    short_analysis = [
+        'rmse', 'acc', 'video'
+    ]
+    return any(params.get(param, False) for param in short_analysis)
 
-parser = argparse.ArgumentParser(description='Arguments for analysis')
-parser.add_argument('--config', dest='config_path',
-                    default='config/config.yaml', type=str,
-                    help='Path to the configuration file')
-args = parser.parse_args()
-
-with open(args.config_path, 'r') as file:
-    try:
-        config = yaml.safe_load(file)
-    except yaml.YAMLError as exc:
-        print("Error in configuration file:", exc)
-        sys.exit(1)
-
-def should_run_basic_analysis(config):
-    """Check if any basic analysis (non-extreme-anomaly) should be run."""
+def should_run_basic_long_analysis(config):
+    """Check if any basic analysis (non-extreme-anomaly / zonal-eof-pc) should be run."""
     params = config['long_analysis_params']
     basic_analyses = [
-        'temporal_mean', 'zonal_mean', 'zonal_eof_pc', 'spectra', 
+        'temporal_mean', 'zonal_mean', 'spectra', 
         'div', 'energy', 'enstrophy', 
         'extreme', 'extreme_block', 
         'zonal_U', 'zonal_V', 'zonal_Omega',
@@ -531,10 +548,11 @@ def create_extreme_anomaly_only_config(config):
     # Enable only extreme anomaly analyses
     params['extreme_anomaly'] = True
     params['extreme_anomaly_block'] = True
+    params['zonal_eof_pc'] = True
     
     # Disable all other analyses
     other_analyses = [
-        'temporal_mean', 'zonal_mean', 'zonal_eof_pc', 'spectra', 
+        'temporal_mean', 'zonal_mean', 'spectra', 
         'div', 'energy', 'enstrophy', 
         'extreme', 'extreme_block', 
         'zonal_U', 'zonal_V', 'zonal_Omega',
@@ -551,20 +569,106 @@ def create_basic_analysis_config(config):
     params = config_copy['long_analysis_params']
     params['extreme_anomaly'] = False
     params['extreme_anomaly_block'] = False
+    params['zonal_eof_pc'] = False
     return config_copy
 
-if config['long_analysis_params']['extreme_anomaly']:
-    # Run basic analysis first (needed for climatology)
-    if should_run_basic_analysis(config):
-        print("Running analysis without extreme anomaly first...")
-        basic_config = create_basic_analysis_config(config)
-        eval(basic_config)
+###### Code to run the analysis ######
+
+parser = argparse.ArgumentParser(description='Arguments for analysis')
+parser.add_argument('--config', dest='config_path',
+                    default='config/config.yaml', type=str,
+                    help='Path to the configuration file')
+args = parser.parse_args()
+
+with open(args.config_path, 'r') as file:
+    try:
+        config = yaml.safe_load(file)
+    except yaml.YAMLError as exc:
+        print("Error in configuration file:", exc)
+        sys.exit(1)
+
+if check_run_long_analysis(config):
+# Long Analysis
+    if config['long_analysis_params']['extreme_anomaly'] or config['long_analysis_params']['extreme_anomaly_block'] or \
+        config['long_analysis_params']['zonal_eof_pc']:
+        # Run basic analysis first (needed for climatology)
+        if should_run_basic_long_analysis(config):
+            print("Running analysis without extreme anomaly and PC of EOF...")
+            basic_config = create_basic_analysis_config(config)
+            eval_long_analysis(basic_config)
+        else:
+            print("No basic analysis to run before extreme anomaly or PC of EOF analysis.")
+
+        # Then run extreme anomaly analysis
+        print("Running analysis with extreme anomaly and PC of EOF...")
+        extreme_config = create_extreme_anomaly_only_config(config)
+        eval_long_analysis(extreme_config)
     else:
-        print("No basic analysis to run before extreme anomaly analysis.")
-    
-    # Then run extreme anomaly analysis
-    print("Running analysis with extreme anomaly...")
-    extreme_config = create_extreme_anomaly_only_config(config)
-    eval(extreme_config)
-else:
-    eval(config)
+        eval_long_analysis(config)
+
+# Short Analysis - Conditional Model
+if check_run_short_analysis(config):
+    # eval_short_analysis(config)
+
+    short_analysis_config = config['short_analysis_params']
+    system_config = config['system_params']
+    root_dir = config['root_dir']
+
+    Ngrid = system_config['Ngrid']
+    Lx, Ly = 2*np.pi, 2*np.pi
+    Lx, Ly, X, Y, dx, dy = gridgen(Lx, Ly, Ngrid, Ngrid, INDEXING='ij')
+    Kx, Ky, Kabs, Ksq, invKsq = initialize_wavenumbers_rfft2(Ngrid, Ngrid, Lx, Ly, INDEXING='ij')
+
+    # Find all .yaml files in the root_dir
+    yaml_files = glob.glob(os.path.join(root_dir, "*.yaml"))
+    if len(yaml_files) == 0:
+        raise FileNotFoundError(f"No .yaml files found in {root_dir}")
+
+    # Load the first .yaml file found
+    with open(yaml_files[0], 'r') as f:
+        emulator_config = yaml.safe_load(f)
+
+    diffusion_config = emulator_config['diffusion_params']
+
+    # Find the folders containing the ensemble directories
+    if short_analysis_config['ensemble_dir_list'] == 'all':
+        ensemble_dirs = [f for f in os.listdir(os.path.join(root_dir, 'data')) if os.path.isdir(os.path.join(os.path.join(root_dir, 'data'), f))]
+    else:
+        ensemble_dirs = short_analysis_config['ensemble_dir_list']
+
+    ensemble_member= 0
+
+    acc_arr, rmse_arr = [], []
+    acc_ensemble_arr, rmse_ensemble_arr = [], []
+
+    for file_num in range(short_analysis_config['analysis_length']):
+        
+        ensemble_member = 0
+        break_outer = False
+        
+        for ensemble_dir in ensemble_dirs:
+            if break_outer:
+                break
+
+            try:
+                data = np.load(ensemble_dir + f'/{file_num}.npy')
+            except FileNotFoundError:
+                print(f"File {ensemble_dir}/{file_num}.npy not found, breaking.")
+                break_outer = True
+                break
+
+            for i in range(data.shape[0]):
+                U = data[i, 0].T
+                V = data[i, 1].T
+                Omega = UV2Omega(U.T, V.T, Kx, Ky, spectral=False).T
+                ensemble_member += 1
+
+                if ensemble_member >= short_analysis_config['analysis_num_ensembles']:
+                    print(f"Reached maximum ensemble members ({short_analysis_config['analysis_num_ensembles']}) for file {file_num}.npy, breaking.")
+                    break_outer = True
+                    break
+        
+        if break_outer:
+            break
+
+

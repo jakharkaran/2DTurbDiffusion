@@ -7,15 +7,15 @@ import os
 ##############################################
 # Plot parameters
 
-SMALL_SIZE = 12
-MEDIUM_SIZE = 14
-BIGGER_SIZE = 16
+SMALL_SIZE = 10
+MEDIUM_SIZE = 12
+BIGGER_SIZE = 14
 
 # mpl.use("pgf") # alternative matplotlib backend using pdflatex
 
 # Set default properties
 params = {
-    # 'text.usetex': True,  # Use LaTeX to interpret text
+    'text.usetex': True,  # Use LaTeX to interpret text
     # 'pgf.texsystem': 'pdflatex',  # Enable pgf backend using pdflatex
     # 'pgf.preamble': r'\usepackage{amsmath}',  # Enable LaTeX math for pgf backend
     'text.latex.preamble': r'\usepackage{amsmath}', 
