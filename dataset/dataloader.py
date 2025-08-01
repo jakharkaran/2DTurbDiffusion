@@ -76,12 +76,13 @@ class CustomMatDataset(Dataset):
             self.model_collapse_gen = train_config['model_collapse_gen']
             self.model_collapse_type = train_config['model_collapse_type']
 
-            self.file_batch_size = sample_config['batch_size']
-            filenum1 = 0
-            filenum2 = len(self.file_list_data)//self.file_batch_size - 1
-            self.file_numbers = range(filenum1, filenum2 + 1)
+            self.file_batch_size = sample_config['sample_batch_size']
+            # filenum1 = 0
+            # filenum2 = len(self.file_list_data)//self.file_batch_size - 1
+            # self.file_numbers = range(filenum1, filenum2 + 1)
 
             data_dir_first_gen = os.path.join('results', train_config['task_name'])
+            # Get all .npy files from all subdirectories in data_dir_first_gen
 
             if self.model_collapse_type == 'last_gen':
                 if self.model_collapse_gen == 1:
@@ -89,8 +90,12 @@ class CustomMatDataset(Dataset):
                 elif self.model_collapse_gen > 1:
                     data_dir_last_gen = data_dir_first_gen + '_' + self.model_collapse_type + '_' + str(self.model_collapse_gen-1)
 
-                self.file_list_model_collapse = [os.path.join(data_dir_last_gen, 'data/1/', f"{i}.npy") for i in self.file_numbers]
-                log_print(f'** filenum ** {filenum1} {filenum2}', log_to_screen=self.log_to_screen)
+                npy_files = []
+                for root, dirs, files in os.walk(os.path.join(data_dir_last_gen, 'data')):
+                    npy_files.extend([os.path.join(root, f) for f in files if f.endswith('.npy')])
+
+                self.file_list_model_collapse = npy_files
+                # log_print(f'** filenum ** {filenum1} {filenum2}', log_to_screen=self.log_to_screen)
 
             elif self.model_collapse_type == 'all_gen':
                 # Build a unified file list
@@ -100,12 +105,15 @@ class CustomMatDataset(Dataset):
                         data_dir_gen = data_dir_first_gen
                     elif gen > 1:
                         data_dir_gen = data_dir_first_gen + '_' + self.model_collapse_type + '_' + str(self.model_collapse_gen-1)
-                    files = [os.path.join(data_dir_gen, 'data/1/', f"{i}.npy") for i in self.file_numbers]
 
-                    self.file_list_model_collapse.extend(files)
+                    npy_files = []
+                    for root, dirs, files in os.walk(os.path.join(data_dir_gen, 'data')):
+                        npy_files.extend([os.path.join(root, f) for f in files if f.endswith('.npy')])
+
+                    self.file_list_model_collapse.extend(npy_files)
 
 
-            log_print(f'************************** length of file list - Model Collapse: {len(self.file_list_model_collapse)} files {len(self.file_list_model_collapse)*self.file_batch_size} files', log_to_screen=self.log_to_screen)
+            log_print(f'************************** length of file list - Model Collapse: {len(self.file_list_model_collapse)} files {len(self.file_list_model_collapse)*self.file_batch_size} snapshots', log_to_screen=self.log_to_screen)
 
         log_print(f'************************** length of file list: {len(self.file_list_data)}', log_to_screen=self.log_to_screen)
 
@@ -168,6 +176,8 @@ class CustomMatDataset(Dataset):
     def load_data_single_step(self, idx):
 
         Omega, Psi, U, V = None, None, None, None 
+
+        # print('Loading data for idx:', idx)
 
         # Loading correct index of files from .mat or .npy files (model_collapse)
         if not self.model_collapse:
