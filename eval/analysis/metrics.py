@@ -173,3 +173,9 @@ def corr_truth_train_model(truth, train, model):
     corr_truth_model, _ = pearsonr(truth.flatten(), model.flatten())
     corr_train_model, _ = pearsonr(train.flatten(), model.flatten())
     return np.round(corr_truth_train,2), np.round(corr_truth_model,2), np.round(corr_train_model,2)
+
+def rmse_truth_train_model(truth, train, model):
+    rmse_truth_train = np.sqrt(np.mean((truth - train) ** 2))
+    rmse_truth_model = np.sqrt(np.mean((truth - model) ** 2))
+    rmse_train_model = np.sqrt(np.mean((train - model) ** 2))
+    return np.round(rmse_truth_train, 2), np.round(rmse_truth_model, 2), np.round(rmse_train_model, 2)
