@@ -53,7 +53,8 @@ def eval_long_analysis(config):
 
         # Prepare list of .npy files for analysis based on conditional/unconditional model
         files = []
-        if diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
+        if long_analysis_config['ensemble_name'] != 'all':
+        # if diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
             # Conditional: go to subfolder with name diffusion_config['ensemble_name'] under 'data'
 
             ensemble_dir = os.path.join(root_dir, 'data', str(long_analysis_config['ensemble_name']))
@@ -129,7 +130,8 @@ def eval_long_analysis(config):
     if not save_dir:
         save_dir = root_dir
 
-    if long_analysis_config['data_type'] == 'emulator' and diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
+    if long_analysis_config['data_type'] == 'emulator' and long_analysis_config['ensemble_name'] != 'all':
+    # if long_analysis_config['data_type'] == 'emulator' and diffusion_config['conditional'] and long_analysis_config['ensemble_name'] != 'all':
         save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'], str(long_analysis_config['ensemble_name']))
     else:
         save_dir = os.path.join(save_dir, 'analysis', long_analysis_config['data_type'])
