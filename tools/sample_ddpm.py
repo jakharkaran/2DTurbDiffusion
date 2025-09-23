@@ -156,6 +156,8 @@ def sample_turb(model, scheduler, train_config, sample_config, model_config, dif
                         model_config['pred_channels'],
                         model_config['im_size'],
                         model_config['im_size'])).float().to(device_ID)
+
+        # xt = torch.clamp(xt, -1, 0.1)  # Clamp to [-1, 1] if required by the model
         
         if sample_config['sampler'] == 'ddpm':
 
