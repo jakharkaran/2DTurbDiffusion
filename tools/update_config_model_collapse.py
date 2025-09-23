@@ -15,6 +15,7 @@ def main(model_collapse_type, model_collapse_gen, config_path='config/config'):
     # Update the specific values in the configuration
     config['train_params']['model_collapse_type'] = model_collapse_type
     config['train_params']['model_collapse_gen'] = model_collapse_gen
+    config['logging_params']['wandb_name'] = config['logging_params']['wandb_name'] + f"_{model_collapse_gen}"
     
     # Determine the target filename for saving the updated configuration
     target_file = f"{config_path}_{model_collapse_type}_{model_collapse_gen}.yaml"
