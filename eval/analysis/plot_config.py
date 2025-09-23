@@ -19,7 +19,9 @@ params = {
     # 'pgf.texsystem': 'pdflatex',  # Enable pgf backend using pdflatex
     # 'pgf.preamble': r'\usepackage{amsmath}',  # Enable LaTeX math for pgf backend
     'text.latex.preamble': r'\usepackage{amsmath}', 
-    'font.family': 'serif',  # Specify the LaTeX family font, if desired
+    'font.family': 'sans-serif',  # Specify the LaTeX family font, if desired # cmu-serif is closes to latex
+    "font.serif": ["Helvetica"],
+    # 'font.family': 'serif',  # Specify the LaTeX family font, if desired
     'figure.titlesize': BIGGER_SIZE,   # Title size
     'font.size': MEDIUM_SIZE,         # Default font size
     'lines.markersize': 5,            # Default line marker size
