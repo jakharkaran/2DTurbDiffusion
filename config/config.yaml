@@ -11,7 +11,7 @@ dataset_params:
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
   # data_dir: 'data_mnist/train/images'
   data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
-  
+
   file_range: [10000, 17500] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
   step_size: 3 # step size for data loading (every nth sample)
@@ -22,7 +22,7 @@ dataset_params:
   normalize: !!bool True
 
 diffusion_params:
-  conditional: !!bool True # True False
+  conditional: !!bool False # True False
   condition_noise: !!bool False  # True False Noise is added to the conditioning while training and sampling ** Not implemented
   num_timesteps : 1000
   beta_start : 0.0001
@@ -33,7 +33,7 @@ model_params: # U-NET
   im_channels : 2 # 2 when conditional=False
   pred_channels: 2 # =im_channels for conditional=False; 
   cond_channels: 2 # =2*(num_prev_conditioning_steps); 2,4,6... when conditional=True;Will be added to input channels if conditional=True; = 0 for conditional=False
-  coord_conv: !!bool False # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
+  coord_conv: !!bool True # True False # Concatenate coordinates with input channels; True: Add +2 channels to input_channels
   # input_channels = im_channels + cond_channels (if conditional) + 2 (if coord_conv)
   # Note: A periodic UNET is translational invariant leading to translational invariant outputs; We need to feed positional argumenets to produce postional aware outputs (coord_conv=True)
   im_size : 64
@@ -47,7 +47,7 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'CDM_test'
+  task_name: 'UDM_test'
   effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
   num_epochs: 800
   optimizer: 'adamw' # 'adam' 'adamw'
@@ -80,11 +80,11 @@ train_params:
   denoise_sample_batch_ratio: 0.15 # % of batch used for divergence loss, rest of the samples used for mse loss
 
   model_collapse: !!bool False # True False # Not implemented for conditional
-  model_collapse_type: 'last_gen' # all_gen last_gen # All generations vs last generation
-  model_collapse_gen: 1 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
+  model_collapse_type: 'all_gen' # all_gen last_gen # All generations vs last generation
+  model_collapse_gen: 2 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
   # Only used for emulator data when conditional=True
   ensemble_name: '1_0' #  all: analyze data in all folder, <ensemble_name>: It will only analyze the data of single ensemble in a particular folder.
-  file_range: [0, 99] # range of files to load
+  file_range: [1, 2500] # range of files to load
 
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
@@ -101,8 +101,8 @@ sample_params:
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
   sample_batch_size : 1        # Inference data batch size
-  num_sample_batch :  100       # number of samples = sample_batch_size * num_sample_batch
+  num_sample_batch :  2550      # number of samples = sample_batch_size * num_sample_batch
   # sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling 
   sample_start_idx_file_range: [5000, 5100] # the initial condition for sampling will be randomly taken from this range
-  save_image: !!bool True       # Saves snapshots of emulated data
+  save_image: !!bool False       # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data # First five batches will always be saved

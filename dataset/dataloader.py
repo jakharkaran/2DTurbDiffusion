@@ -109,8 +109,13 @@ class CustomMatDataset(Dataset):
                     # log_print(f'** filenum ** {filenum1} {filenum2}', log_to_screen=self.log_to_screen)
 
                 elif self.model_collapse_type == 'all_gen':
-                    # Build a unified file list
+                    # Build a unified file list with dataset boundary tracking
                     self.file_list_model_collapse = []
+                    self.dataset_boundaries = []  # Track where each dataset starts/ends
+
+                    # Original .mat files
+                    self.dataset_boundaries.append((0, len(self.file_list_data)))
+
                     for gen in range(1, self.model_collapse_gen+1):
                         if gen == 1:
                             data_dir_gen = data_dir_first_gen
@@ -118,13 +123,24 @@ class CustomMatDataset(Dataset):
                             data_dir_gen = data_dir_first_gen + '_' + self.model_collapse_type + '_' + str(self.model_collapse_gen-1)
 
                         npy_files = []
-                        for root, dirs, files in os.walk(os.path.join(data_dir_gen, 'data')):
-                            npy_files.extend([os.path.join(root, f) for f in files if f.endswith('.npy')])
 
+                        if self.conditional:
+                            data_dir_temp = os.path.join(data_dir_gen, 'data', train_config['ensemble_name'])
+                            model_collapse_file_range = train_config['file_range']
+                            model_collapse_file_number = range(model_collapse_file_range[0], model_collapse_file_range[1] + 1)
+
+                            npy_files = [os.path.join(data_dir_temp, f"{i}.npy") for i in model_collapse_file_number]  # include only every step_size-th file
+                        else:
+                            for root, dirs, files in os.walk(os.path.join(data_dir_gen, 'data')):
+                                npy_files.extend([os.path.join(root, f) for f in files if f.endswith('.npy')])
+
+                        # Track boundaries for this generation
+                        start_idx =  len(self.file_list_data) + len(self.file_list_model_collapse) * self.file_batch_size
+                        end_idx = start_idx + len(npy_files) * self.file_batch_size
+
+                        self.dataset_boundaries.append((start_idx, end_idx))
                         self.file_list_model_collapse.extend(npy_files)
 
-
-                print(self.file_list_model_collapse)
                 log_print(f'************************** length of file list - Model Collapse: {len(self.file_list_model_collapse)} files {len(self.file_list_model_collapse)*self.file_batch_size} snapshots', log_to_screen=self.log_to_screen)
 
         log_print(f'************************** length of file list: {len(self.file_list_data)}', log_to_screen=self.log_to_screen)
@@ -145,10 +161,17 @@ class CustomMatDataset(Dataset):
             base_len = len(self.file_list_data)
 
         if self.conditional:
-             base_len -= (self.condition_step_size * self.num_prev_conditioning_steps)  # need t‑k, ... t-2, t-1 for every t
-             return base_len
+            if self.model_collapse and self.training and self.model_collapse_type == 'all_gen':
+                valid_samples = 0
+                for start, end in self.dataset_boundaries:
+                    dataset_len = end - start
+                    valid_samples += max(0, dataset_len - (self.condition_step_size * self.num_prev_conditioning_steps))
+                return valid_samples
+            else:
+                base_len -= (self.condition_step_size * self.num_prev_conditioning_steps)  # need t‑k, ... t-2, t-1 for every t
+            return base_len
         else:
-             return base_len
+            return base_len
 
     def __getitem__(self, idx):
         """
@@ -168,7 +191,13 @@ class CustomMatDataset(Dataset):
             # data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
             # data_tensor = torch.cat(data_tensor_list, dim=0)
 
-            idx_arr = [idx + step * self.condition_step_size for step in reversed(range(0, self.num_prev_conditioning_steps+1))]
+            if self.training and self.model_collapse and self.model_collapse_type == 'all_gen':
+                actual_idx = self._map_to_valid_index(idx)
+                # print(f'Logical idx: {idx}, Actual idx: {actual_idx}')
+            else:
+                actual_idx = idx
+
+            idx_arr = [actual_idx + step * self.condition_step_size for step in reversed(range(0, self.num_prev_conditioning_steps+1))]
             data_tensor_list = [self.load_data_single_step(idx) for idx in idx_arr]
             data_tensor = torch.stack(data_tensor_list, dim=0)  # shape: (T, C, H, W) T: t, t-1, t-2, ...
             log_print(f'idx: {idx_arr}', log_to_screen=self.diagnostic_logs)
@@ -350,3 +379,23 @@ class CustomMatDataset(Dataset):
         if ny % y_factor != 0:
             raise ValueError(f"Downsampling factor y_factor={y_factor} is not a divisor of number of rows ny={ny}.")
         return arr[::y_factor, ::x_factor]
+
+    def _map_to_valid_index(self, logical_idx):
+        """Map logical index to actual index ensuring no dataset boundary crossing"""
+        # Used for Conditional/Dynamic Model Collapse 'all gen' during training
+        # Ensures that the conditioning steps do not cross dataset boundaries in consecutive generations of model collapse
+
+        current_logical = 0
+        
+        for start, end in self.dataset_boundaries:
+            dataset_len = end - start
+            valid_len = max(0, dataset_len - (self.condition_step_size * self.num_prev_conditioning_steps))
+            
+            if current_logical + valid_len > logical_idx:
+                # This dataset contains our target index
+                offset_in_dataset = logical_idx - current_logical
+                return start + offset_in_dataset
+                
+            current_logical += valid_len
+
+        raise IndexError(f"Index {logical_idx} out of range")
