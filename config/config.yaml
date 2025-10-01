@@ -3,18 +3,18 @@ logging_params: # Logging for Weights and biases
   diagnostic_logs: !!bool False # Log Diagnistic  to screen
   log_to_wandb: !!bool False # True False
   wandb_table_logging_interval: 10 # not setup
-  wandb_project: 'test'
+  wandb_project: 'Model_Collapse_last_gen'
   wandb_group: 'static'
-  wandb_name: 'CDM_test'
+  wandb_name: 'UDM_s3_Oaw_lrC3e4'
 
 dataset_params:
   # the data is contained in the 'data' folder in the root directory. there should be another 'mean_std.npz' file in the same folder with mean ans std values
   # data_dir: 'data_mnist/train/images'
   data_dir: '../data/Re500_fkx4fky4_r0.1_b20/NoSGS/NX64/dt0.0005_IC1/'
   
-  file_range: [5000, 7500] # range of files to load
+  file_range: [10000, 17500] # range of files to load
   # total samples used for training = file_range[1] - file_range[0] // step_size
-  step_size: 1 # step size for data loading (every nth sample)
+  step_size: 3 # step size for data loading (every nth sample)
   condition_step_size: 1 # step size for conditioning data loading (every nth sample)
   num_prev_conditioning_steps : 1 # 1 2 3 4 # Number of previous time steps to use for conditioning t-1, t-2, t-3, t-4
   downsample_factor: 1
@@ -47,11 +47,11 @@ model_params: # U-NET
   num_heads : 4
 
 train_params:
-  task_name: 'CDM_test2'
+  task_name: 'CDM_test'
   effective_batch_size: 16 # batch_size per gpu = effective_batch_size / num_gpus
-  num_epochs: 400
+  num_epochs: 800
   optimizer: 'adamw' # 'adam' 'adamw'
-  scheduler: null # 'CosineAnnealingLR' 'CosineAnnealingWarmRestarts' 'ReduceLROnPlateau'
+  scheduler: CosineAnnealingLR # 'CosineAnnealingLR' 'CosineAnnealingWarmRestarts' 'ReduceLROnPlateau'
   lr: 1e-4
   lr_min: 1e-6 # Minimum learning rate # CosineAnnealingLR CosineAnnealingWarmRestarts ReduceLROnPlateau
   # CosineAnnealingWarmRestarts
@@ -80,8 +80,11 @@ train_params:
   denoise_sample_batch_ratio: 0.15 # % of batch used for divergence loss, rest of the samples used for mse loss
 
   model_collapse: !!bool False # True False # Not implemented for conditional
-  model_collapse_type: 'all_gen' # all_gen last_gen # All generations vs last generation
+  model_collapse_type: 'last_gen' # all_gen last_gen # All generations vs last generation
   model_collapse_gen: 1 # 1 2 3 4 5 # Can't be gen 0 - model_collapse should be False for gen 0
+  # Only used for emulator data when conditional=True
+  ensemble_name: '1_0' #  all: analyze data in all folder, <ensemble_name>: It will only analyze the data of single ensemble in a particular folder.
+  file_range: [0, 99] # range of files to load
 
   ckpt_name: 'ddpm_ckpt.pth'
   best_ckpt_name: 'best_ddpm_ckpt.pth'
@@ -97,9 +100,9 @@ sample_params:
   dpm_skip: "time_uniform"  # 'time_uniform' 'logSNR'
   dpm_guidance: 'uncond'    # 'uncond' # only one comaptible with current code
 
-  sample_batch_size : 4        # Inference data batch size
-  num_sample_batch : 20       # number of samples = sample_batch_size * num_sample_batch
+  sample_batch_size : 1        # Inference data batch size
+  num_sample_batch :  100       # number of samples = sample_batch_size * num_sample_batch
   # sample_file_start_idx : 5000  # For conditional:True, first real frame used to seed sampling 
-  sample_start_idx_file_range: [5000, 5004] # the initial condition for sampling will be randomly taken from this range
+  sample_start_idx_file_range: [5000, 5100] # the initial condition for sampling will be randomly taken from this range
   save_image: !!bool True       # Saves snapshots of emulated data
   save_data: !!bool True # Saved emulated data # First five batches will always be saved
