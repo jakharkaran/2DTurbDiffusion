@@ -22,3 +22,5 @@ __pycache__
 
 # Ignore log files
 *.out
+
+results/
