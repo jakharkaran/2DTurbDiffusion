@@ -13,7 +13,7 @@ This repository implements Unconditional and Conditional [DDPM](https://arxiv.or
 * ```eval/config/onfig.yaml``` - evaluation of samples
 
 ## Install Relevant Packages
-* ```pip3 install torch torchvision torchaudio scipy numpy matplotlib einops tqdm pyyaml statsmodel```
+* ```pip3 install torch torchvision torchaudio scipy numpy matplotlib einops tqdm pyyaml statsmodels```
 
 ## Install py2d
 ```
