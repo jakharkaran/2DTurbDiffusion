@@ -660,16 +660,25 @@ if check_run_short_analysis(config):
                 break
 
             for i in range(data.shape[0]):
-                U = data[i, 0].T
-                V = data[i, 1].T
-                Omega = UV2Omega(U.T, V.T, Kx, Ky, spectral=False).T
-                ensemble_member += 1
 
-                if ensemble_member >= short_analysis_config['analysis_num_ensembles']:
-                    print(f"Reached maximum ensemble members ({short_analysis_config['analysis_num_ensembles']}) for file {file_num}.npy, breaking.")
-                    break_outer = True
-                    break
+                # add a try except block to catch any errors during data processing - likely due to incomplete files
+                try:
+
+                    U = data[i, 0].T
+                    V = data[i, 1].T
+                    Omega = UV2Omega(U.T, V.T, Kx, Ky, spectral=False).T
+                    ensemble_member += 1
+
+
+                    if ensemble_member >= short_analysis_config['analysis_num_ensembles']:
+                        print(f"Reached maximum ensemble members ({short_analysis_config['analysis_num_ensembles']}) for file {file_num}.npy, breaking.")
+                        break_outer = True
+                        break
         
+                except Exception as e:
+                    print(f"Error processing file {ensemble_dir}/{file_num}.npy, index {i}: {e}")
+                    break
+
         if break_outer:
             break
 
