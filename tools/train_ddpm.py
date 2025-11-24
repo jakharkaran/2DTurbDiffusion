@@ -186,7 +186,6 @@ def train(args):
             T_max = int(num_epochs) - int(train_config['warmup_total_iters'])
         else:
             T_max = int(num_epochs) 
-        print(T_max)
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max, eta_min=float(train_config['lr_min']))
     elif train_config["scheduler"] == 'CosineAnnealingWarmRestarts':
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(train_config["T_0"]), T_mult=int(train_config["T_mult"]), eta_min=float(train_config['lr_min']))
