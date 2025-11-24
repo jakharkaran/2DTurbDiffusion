@@ -180,16 +180,42 @@ def train(args):
     if train_config["scheduler"] == 'ReduceLROnPlateau':
         LRscheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=int(train_config['factor']), patience=int(train_config['patience']), cooldown=int(train_config['cooldown']), mode='min', min_lr=float(train_config['lr_min']))
     elif train_config["scheduler"] == 'CosineAnnealingLR':
-        LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(train_config["num_epochs"]), eta_min=float(train_config['lr_min']))
+        # Adjustig max epochs input to CosineAnnealingLR scduler if using warmup
+        if train_config['warmup']:
+            # Subtract warmup epochs from max_epochs
+            T_max = int(num_epochs) - int(train_config['warmup_total_iters'])
+        else:
+            T_max = int(num_epochs) 
+        print(T_max)
+        LRscheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max, eta_min=float(train_config['lr_min']))
     elif train_config["scheduler"] == 'CosineAnnealingWarmRestarts':
         LRscheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(train_config["T_0"]), T_mult=int(train_config["T_mult"]), eta_min=float(train_config['lr_min']))
     else:
         LRscheduler = None
 
-    # Warm up epochs if using
-    if train_config['warmup']:
-        warmuplr = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=train_config['warmup_start_factor'],
-                                                              total_iters=train_config['warmup_total_iters'])
+
+    # Warm up epochs if using - CREATE ONCE, NOT EVERY EPOCH
+    if train_config['warmup'] and LRscheduler is not None:
+        warmuplr = torch.optim.lr_scheduler.LinearLR(
+            optimizer, 
+            start_factor=train_config['warmup_start_factor'],
+            total_iters=train_config['warmup_total_iters']
+        )
+        
+        # Chain warmup with main scheduler
+        if train_config["scheduler"] == 'ReduceLROnPlateau':
+            LRscheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer,
+                schedulers=[warmuplr, LRscheduler],
+                milestones=[train_config['warmup_total_iters']]
+            )
+        elif train_config["scheduler"] in ['CosineAnnealingLR', 'CosineAnnealingWarmRestarts']:
+            main_scheduler = LRscheduler
+            LRscheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer,
+                schedulers=[warmuplr, main_scheduler],
+                milestones=[train_config['warmup_total_iters']]
+            )
 
     # Set up logging with wandb - only on main process
     if logging_config['log_to_wandb'] and device_ID == 0:
@@ -221,7 +247,12 @@ def train(args):
         # Load model and optimizer state
         model.load_state_dict(checkpoint['model_state'])
         optimizer.load_state_dict(checkpoint['optimizer_state'])
-        
+
+        # Restore scheduler state
+        if LRscheduler is not None and 'scheduler_state' in checkpoint:
+            LRscheduler.load_state_dict(checkpoint['scheduler_state'])
+            log_print('Learning rate scheduler state restored', log_to_screen=log_to_screen)
+
         # Restore training state
         start_epoch = checkpoint['epoch']
         best_loss = checkpoint['best_loss']
@@ -462,15 +493,12 @@ def train(args):
         dist.all_reduce(mean_loss_tensor, op=dist.ReduceOp.AVG)
         global_mean_epoch_loss = mean_loss_tensor.item()
 
-        # Adjust lr rate schedule if using
-        if train_config["warmup"] and (epoch) < train_config["warmup_total_iters"]:
-            warmuplr.step()
-        else:
-            if train_config["scheduler"] == 'ReduceLROnPlateau':
-                LRscheduler.step(mean_epoch_loss)
-            elif train_config["scheduler"] in ['CosineAnnealingLR', 'CosineAnnealingWarmRestarts']:
-                LRscheduler.step()
-
+        # Adjust lr rate schedule
+        if train_config["scheduler"] == 'ReduceLROnPlateau':
+            LRscheduler.step(mean_epoch_loss)
+        elif train_config["scheduler"] in ['CosineAnnealingLR', 'CosineAnnealingWarmRestarts']:
+            LRscheduler.step()
+    
         # Synchronize all processes before saving checkpoints
         if torch.distributed.is_initialized():
             barrier(device_ids=[device_ID])
@@ -483,6 +511,10 @@ def train(args):
             'best_loss': min(best_loss, global_mean_epoch_loss),  # Use the actual best loss
             'iteration': iteration
         }
+
+        # Save scheduler states
+        if LRscheduler is not None:
+            checkpoint['scheduler_state'] = LRscheduler.state_dict()
 
         if best_loss > global_mean_epoch_loss:
             best_loss = global_mean_epoch_loss
@@ -497,7 +529,6 @@ def train(args):
             # Save the model
             torch.save(checkpoint, os.path.join(save_dir,
                                                     train_config['ckpt_name']))
-        
         if logging_config['log_to_wandb'] and device_ID == 0:
             # First, log all the per-iteration metrics
             for i, metrics in enumerate(iteration_metrics):
